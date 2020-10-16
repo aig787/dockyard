@@ -1,0 +1,168 @@
+name: dockyard
+author: Aaron Griffin <aig787@gmai.com>
+about: Back up and restore Docker containers and volumes
+args:
+  - verbose:
+      short: v
+      multiple: true
+      help: Sets the level of verbosity
+      global: true
+subcommands:
+  - write:
+      about: Write contents to file
+      args:
+        - contents:
+            help: Contents to write
+            short: c
+            long: contents
+            required: true
+            value_name: CONTENTS
+        - file:
+            help: Output file
+            short: f
+            long: file
+            required: true
+            value_name: FILE
+        - encoded:
+            help: Whether input contents are bas64 encoded
+            short: e
+            long: encoded
+  - cat:
+      about: Read and print contents from file
+      args:
+        - file:
+            help: Input file
+            short: f
+            long: f
+            required: true
+            value_name: FILE
+        - encoded:
+            help: Whether file contents are base64 encoded
+            short: e
+            long: encoded
+  - backup:
+      about: Back up a docker resource
+      subcommands:
+        - directory:
+            about: Back up directory
+            args:
+              - INPUT:
+                  help: Input directory
+                  required: true
+                  index: 1
+              - OUTPUT:
+                  help: Output directory
+                  required: true
+                  index: 2
+              - name:
+                  help: Output archive name
+                  short: n
+                  long: name
+                  value_name: NAME
+                  required: true
+        - volume:
+            about: Back up Docker volume
+            args:
+              - NAME:
+                  help: Name of volume to back up
+                  required: true
+                  index: 1
+              - OUTPUT:
+                  help: Location to write backup
+                  required: true
+                  index: 2
+              - volume_type:
+                  help: Type of volume
+                  long: volume-type
+                  value_name: VOLUME_TYPE
+                  possible_values: ["volume", "bind"]
+                  default_value: "volume"
+              - output_type:
+                  help: Type of output resource
+                  long: output-type
+                  value_name: OUTPUT_TYPE
+                  possible_values: ["volume", "directory"]
+                  default_value: "directory"
+        - container:
+            about: Back up Docker volume
+            args:
+              - NAME:
+                  help: Name of container to back up
+                  required: true
+                  index: 1
+              - OUTPUT:
+                  help: Location to write backup
+                  required: true
+                  index: 2
+              - output_type:
+                  help: Type of output resource
+                  long: output-type
+                  value_name: OUTPUT_TYPE
+                  possible_values: ["volume", "directory"]
+                  default_value: "directory"
+              - volumes:
+                  help: List of volumes to back up
+                  long: volumes
+                  min_values: 1
+  - restore:
+      about: Restore a Docker resource
+      subcommands:
+        - directory:
+            about: Restore a directory
+            args:
+              - ARCHIVE:
+                  help: Path to archive
+                  required: true
+                  index: 1
+              - OUTPUT:
+                  help: Output directory for archive extraction
+                  required: true
+                  index: 2
+        - volume:
+            about: Restore a Docker volume
+            args:
+              - ARCHIVE:
+                  help: Path to archive relative to INPUT
+                  required: true
+                  index: 1
+              - INPUT:
+                  help: Location of backups
+                  required: true
+                  index: 2
+              - VOLUME:
+                  help: Name of volume to restore
+                  required: true
+                  index: 3
+              - volume_type:
+                  help: Type of volume to be restored
+                  long: volume-type
+                  value_name: VOLUME_TYPE
+                  possible_values: ["volume", "bind"]
+                  default_value: "volume"
+              - input_type:
+                  help: Type of resource where backups are stored'
+                  long: input-type
+                  value_name: INPUT_TYPE
+                  possible_values: ["volume", "directory"]
+                  default_value: "directory"
+        - container:
+            about: Restore a Docker container
+            args:
+              - FILE:
+                  help: Container backup file relative to INPUT
+                  required: true
+                  index: 1
+              - INPUT:
+                  help: Location of backups
+                  required: true
+                  index: 2
+              - NAME:
+                  help: Restored container name
+                  required: true
+                  index: 3
+              - input_type:
+                  help: Type of output resource
+                  long: input-type
+                  value_name: INPUT_TYPE
+                  possible_values: ["volume", "directory"]
+                  default_value: "directory"
