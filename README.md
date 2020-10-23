@@ -1,17 +1,22 @@
-[![license](https://img.shields.io/github/license/aig787/dockyard)](https://opensource.org/licenses/MIT)
+# dockyard
 
-# Dockyard: Back up and restore Docker Resources
+[![license](https://img.shields.io/github/license/aig787/dockyard)](https://opensource.org/licenses/MIT)
+[![dockerhub](https://img.shields.io/docker/v/aig787/dockyard?label=dockerhub)](https://hub.docker.com/r/aig787/dockyard)
+[![crates.io](https://img.shields.io/crates/v/dockyard)](https://crates.io/crates/dockyard)
+[![docs](https://docs.rs/dockyard/badge.svg)](https://docs.rs/dockyard/)
+
+## Dockyard: Back up and restore Docker Resources
 
 Dockyard can back up Docker volumes and containers (automatically backing up mounted volumes).
 
-## Install
+### Install
 
 ```shell
 git clone git@github.com:aig787/dockyard.git
 cargo install
 ```
 
-## Usage
+### Usage
 ```shell
 # Back up volume to directory
 dockyard backup volume <volume> <backup-directory>
@@ -32,7 +37,7 @@ dockyard restore volume <relative_archive_path> <backup-directory> <volume>
 dockyard restore container <relative-backup-file> <backup-directory> <container>
 ```
 
-## Example Back Up and Restore
+### Example Back Up and Restore
 ```shell
 ❯ dockyard backup container nginx /tmp
 2020-10-22 16:09:02,555 INFO  [dockyard::backup] Backing up directory /host_mnt/Users/aig787/test to dockyard/binds/:volume1 on /tmp
@@ -52,7 +57,9 @@ dockyard restore container <relative-backup-file> <backup-directory> <container>
 2020-10-22 16:10:51,485 INFO  [dockyard::restore] Successfully restored container nginx-restore
 ```
 
-## Running Tests
+### Running Tests
 ```shell
 cargo test
 ```
+
+License: MIT

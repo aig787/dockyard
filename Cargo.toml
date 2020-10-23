@@ -1,19 +1,16 @@
 [package]
 name = "dockyard"
-version = "0.1.1-alpha.0"
 description = "Back up and restore Docker resources"
+version = "0.1.1-alpha.0"
 authors = ["Aaron Griffin <aig787@gmail.com>"]
-edition = "2018"
-build = "build.rs"
+homepage = "https://github.com/aig787/dockyard"
+repository = "https://github.com/aig787/dockyard"
+documentation = "https://docs.rs/dockyard"
 license = "MIT"
+build = "build.rs"
 keywords = ["docker"]
 readme = "README.md"
-
-[[bin]]
-name = "dockyard"
-path = "src/main.rs"
-
-# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+edition = "2018"
 
 [dependencies]
 bollard = "0.8"
