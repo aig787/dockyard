@@ -1,5 +1,5 @@
 //! [![license](https://img.shields.io/github/license/aig787/dockyard)](https://opensource.org/licenses/MIT)
-//! [![dockerhub](https://img.shields.io/docker/v/aig787/dockyard?label=dockerhub)](https://hub.docker.com/r/aig787/dockyard)
+//! [![dockerhub](https://img.shields.io/docker/v/aig787/dockyard?label=dockerhub&sort=semver)](https://hub.docker.com/r/aig787/dockyard)
 //! [![crates.io](https://img.shields.io/crates/v/dockyard)](https://crates.io/crates/dockyard)
 //! [![docs](https://docs.rs/dockyard/badge.svg)](https://docs.rs/dockyard/)
 //! 
@@ -10,8 +10,7 @@
 //! ## Install
 //! 
 //! ```shell
-//! git clone git@github.com:aig787/dockyard.git
-//! cargo install
+//! cargo install dockyard
 //! ```
 //! 
 //! ## Usage
@@ -54,7 +53,17 @@
 //! 2020-10-22 16:10:51,412 INFO  [dockyard::restore] Successfully restored mount hello
 //! 2020-10-22 16:10:51,485 INFO  [dockyard::restore] Successfully restored container nginx-restore
 //! ```
-//! 
+//! ## Building the docs
+//! ```shell
+//! cargo doc
+//! cargo readme > README.md
+//! ```
+//!
+//! ## Building the container
+//! ```shell
+//! make docker
+//! ```
+//!
 //! ## Running Tests
 //! ```shell
 //! cargo test
