@@ -1,5 +1,5 @@
 name: dockyard
-author: Aaron Griffin <aig787@gmai.com>
+author: Aaron Griffin <aig787@gmail.com>
 about: Back up and restore Docker containers and volumes
 args:
   - verbose:
