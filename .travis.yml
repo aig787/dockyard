@@ -1,4 +1,6 @@
 language: rust
+services:
+  docker
 cache: cargo
 rust:
   - stable
