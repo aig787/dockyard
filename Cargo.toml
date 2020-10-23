@@ -1,7 +1,7 @@
 [package]
 name = "dockyard"
 description = "Back up and restore Docker resources"
-version = "0.1.1-alpha.0"
+version = "0.1.1"
 authors = ["Aaron Griffin <aig787@gmail.com>"]
 homepage = "https://github.com/aig787/dockyard"
 repository = "https://github.com/aig787/dockyard"
