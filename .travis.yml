@@ -1,17 +1,13 @@
 language: rust
 services: docker
 cache: cargo
-before_install:
-  - cargo install cargo-release
 rust:
   - stable
   - beta
   - nightly
+before_script:
+  - make docker
 jobs:
   allow_failures:
     - rust: nightly
   fast_finish: true
-deploy:
-  provider: cargo
-  token:
-    secure: fKbbmW8DWPByc0fytL3+ug/9eHLig0YNYqNoHjUBKAqirHFt0xEb8MBjf9/eP6PQdYUHLab5GrAISVXLVl1vFWsvOMkvrFd+Hroo+FP/mLc8U/I8QQrR/kx3utc+/oJ6Uw9WQsUNYAddE71jCF3HiBJlmSvLq2LJvyyyJEYy77/FEoRhxuuVNbiw+Qw7ySae6gk5/4ce00JrJgcr50y/tThT5+oZxAy9IohG9RhqjCgGd9RFd2WpYZDBvjfkZCvwQAYRDHQMGbYRBB+2o/1tiDIZPMWczUXLybNAcB6dAjLco43gI/Nzzb+bUteQxZTedv6q0pO8seEF6vJ4MNEGb6psP6+1gMDdJIufYrnMIwn9UmJpoi3zZwd30JxjuZ2ddiHFahgKe3JZrttCDX6XBp7ipkcGdzrmsJ21RV+STFrke2adnuA8/hA1+3gbeuYQcAPmxWtvuLR6RTvMt7vtlbE5IMVx6B5KFxxZlY8DGCGZcFlA3ghOz5s5xKdFSrIUB9y7nvKHogmCS3HWOtuR07j24qEIjES2Y6yzO+dbcRpEEMjoifPruvAPy4Fr/Tf+UyGO6hErvkycZKlyo4FHe4xP/BhajqLaPr3sBBBEewhB+mGIjX5SJXgTcxrNKTHxZI01TkAnZ9SqDL8/BmYvpz+ZpWyf4ZrdR/6zmUBaPEM=

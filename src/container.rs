@@ -1,13 +1,23 @@
 use anyhow::Result;
 use bollard::Docker;
 use bollard::container::{CreateContainerOptions, Config, StartContainerOptions, WaitContainerOptions, LogsOptions, LogOutput, RemoveContainerOptions, InspectContainerOptions};
-use bollard::models::{HostConfig, Mount, MountTypeEnum};
+use bollard::models::{HostConfig, Mount, MountTypeEnum, ProgressDetail, BuildInfo};
 use uuid::Uuid;
 use futures::TryStreamExt;
 use log::LevelFilter;
 use std::process;
-use futures_core::core_reexport::sync::atomic::AtomicU8;
-use futures_core::core_reexport::sync::atomic::Ordering::Relaxed;
+use bollard::image::{CreateImageOptions, BuildImageOptions};
+use std::path::{Path, PathBuf};
+use std::process::Command;
+use std::fs::File;
+use tempfile::TempDir;
+use flate2::read::GzEncoder;
+use flate2::Compression;
+use std::io::{Read, BufReader};
+use std::sync::atomic::AtomicU8;
+use std::sync::atomic::Ordering::Relaxed;
+use futures_core::Stream;
+use std::error::Error;
 
 static COMMAND_VERBOSITY: AtomicU8 = AtomicU8::new(0);
 
@@ -25,6 +35,15 @@ fn get_verbosity_arg() -> String {
 }
 
 pub(crate) async fn run_docker_command(docker: &Docker, container_name: &str, image: &str, mounts: Option<Vec<Mount>>, cmd: Vec<&str>, labels: Option<Vec<(&str, &str)>>) -> Result<(i64, Vec<LogOutput>)> {
+    if let Err(_) = docker.inspect_image(image).await {
+        log::info!("Pulling {}", image);
+        docker.create_image(Some(CreateImageOptions {
+            from_image: image,
+            ..Default::default()
+        }), None, None)
+            .try_collect::<Vec<_>>()
+            .await?;
+    }
     log::debug!("Running '{}' in container {}", cmd.join(" "), container_name);
     log::trace!("Creating container {} with mounts: {:?}", container_name, mounts);
     docker.create_container(Some(CreateContainerOptions { name: container_name }), Config {
@@ -81,13 +100,85 @@ pub async fn run_dockyard_command(docker: &Docker, mounts: Option<Vec<Mount>>, m
         cmd.push(&verbosity);
     }
 
-    let image = get_image(docker).await?;
+    let image = get_or_build_image(&docker).await?;
     let container_name = format!("dockyard_{}", Uuid::new_v4());
     let pid = process::id().to_string();
     let labels = vec![
         ("com.github.aig787.dockyard.pid", pid.as_str())
     ];
     run_docker_command(docker, &container_name, &image, mounts, cmd, Some(labels)).await
+}
+
+async fn get_or_build_image(docker: &Docker) -> Result<String> {
+    match Command::new("git")
+        .arg("rev-parse")
+        .arg("HEAD")
+        .arg("--show-toplevel")
+        .output() {
+        Ok(output) => {
+            let output = output.stdout.into_iter().map(|i| i as char).collect::<String>();
+            let output = output.split('\n').collect::<Vec<_>>();
+            let rev = output[0];
+            let git_root = output[1];
+            let image = format!("dockyard:{}", rev);
+            if let Err(_) = docker.inspect_image(&image).await {
+                log::warn!("{} not found, building...", &image);
+                let context = build_context(git_root)?;
+
+                let output = docker.build_image(BuildImageOptions {
+                    dockerfile: "Dockerfile",
+                    t: image.as_str(),
+                    q: false,
+                    ..Default::default()
+                }, None, Some(context.into()));
+                stream_output(&image, output).await?;
+            }
+            Ok(image)
+        }
+        Err(_) => Ok(format!("dockyard:{}", env!("VERGEN_SEMVER")))
+    }
+}
+
+
+async fn stream_output(prefix: &str, stream: impl Stream<Item=Result<BuildInfo, bollard::errors::Error>>) -> Result<(), bollard::errors::Error> {
+    let print_lines = |prefix: &str, buffer: &mut String| {
+        if let Some(index) = buffer.rfind('\n') {
+            buffer.drain(0..index).collect::<String>().lines().for_each(|line| {
+                if !line.is_empty() {
+                    log::info!("[{}] {}", prefix, line);
+                }
+            })
+        }
+    };
+
+
+    let mut buffer = String::new();
+    stream.try_for_each(|info| {
+        if let Some(s) = info.stream {
+            buffer.push_str(s.as_str());
+        }
+        print_lines(prefix, &mut buffer);
+        futures::future::ok(())
+    }).await
+}
+
+fn build_context(root: &str) -> Result<Vec<u8>> {
+    log::info!("Creating build context");
+    let working_dir = TempDir::new()?;
+    let output = working_dir.path().join("context.tgz");
+    let tar_gz = File::create(&output)?;
+    let enc = GzEncoder::new(tar_gz, Compression::default());
+    let mut tar = tar::Builder::new(enc);
+    tar.append_dir_all("src", format!("{}/src", root))?;
+    tar.append_path("Dockerfile")?;
+    tar.append_path("Cargo.toml")?;
+    tar.append_path("Cargo.lock")?;
+    tar.append_path("build.rs")?;
+    tar.finish()?;
+    let mut tar_gz = File::open(&output)?;
+    let mut contents = Vec::new();
+    tar_gz.read_to_end(&mut contents)?;
+    Ok(contents)
 }
 
 /// Print output logs, returning failure on non-zero exit code
@@ -122,19 +213,6 @@ pub(crate) fn print_logs(prefix: &str, logs: &[LogOutput], level: LevelFilter) {
         }
     }
 }
-
-async fn get_image(docker: &Docker) -> Result<String> {
-    let image = format!("dockyard:{}", env!("VERGEN_SHA"));
-    match docker.inspect_image(&image).await {
-        Ok(_) => Ok(image),
-        Err(_) => {
-            let version = env!("VERGEN_SEMVER");
-            log::warn!("Falling back to {}", version);
-            Ok(format!("dockyard:{}", version))
-        }
-    }
-}
-
 
 /// Return Mount representing backup directory
 pub fn get_backup_directory_mount(directory: String) -> Mount {
