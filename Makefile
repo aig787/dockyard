@@ -5,4 +5,4 @@ release:
 	cargo build --release
 
 docker:
-	DOCKER_BUILDKIT=1 docker build -t dockyard:${VERSION} -t dockyard:${SHA} .
+	docker build -t dockyard:${VERSION} -t dockyard:${SHA} .

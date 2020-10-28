@@ -275,6 +275,8 @@ mod test {
     use bollard::models::MountTypeEnum;
     use uuid::Uuid;
     use crate::container::get_backup_directory_mount;
+    use bollard::image::CreateImageOptions;
+    use futures::TryStreamExt;
 
     #[test]
     fn backup_directory_test() {
@@ -400,6 +402,10 @@ mod test {
     }
 
     async fn create_and_start_container(docker: &Docker, name: &str, mounts: Vec<Mount>) -> Result<()> {
+        let image = "alpine:latest";
+        docker.create_image(Some(CreateImageOptions{from_image: image, ..Default::default()}), None, None)
+            .try_collect::<Vec<_>>()
+            .await?;
         docker.create_container(
             Some(CreateContainerOptions { name }),
             Config {

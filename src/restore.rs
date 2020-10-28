@@ -11,6 +11,8 @@ use crate::backup::ContainerBackup;
 use bollard::container::{CreateContainerOptions, Config};
 use crate::file::decode_b64;
 use futures::future::Either;
+use bollard::image::CreateImageOptions;
+use futures::TryStreamExt;
 
 pub fn restore_directory(archive: &str, output: &str) -> Result<()> {
     log::info!("Restoring {} to {}", archive, output);
@@ -96,6 +98,12 @@ pub async fn restore_container(docker: &Docker, backup_file: &str, container: &s
         res.await.with_context(|| format!("Failed to restore mount {}", &name))?;
         log::info!("Successfully restored mount {}", &name)
     }
+
+    let image = container_backup.container_config.image.unwrap();
+    docker.create_image(Some(CreateImageOptions { from_image: image.as_str(), ..Default::default() }), None, None)
+        .try_collect::<Vec<_>>()
+        .await?;
+
     let container_config = Config {
         hostname: container_backup.container_config.hostname,
         domainname: container_backup.container_config.domainname,
@@ -111,7 +119,7 @@ pub async fn restore_container(docker: &Docker, backup_file: &str, container: &s
         cmd: container_backup.container_config.cmd,
         healthcheck: container_backup.container_config.healthcheck,
         args_escaped: container_backup.container_config.args_escaped,
-        image: container_backup.container_config.image,
+        image: Some(image),
         volumes: container_backup.container_config.volumes,
         working_dir: container_backup.container_config.working_dir,
         entrypoint: container_backup.container_config.entrypoint,
@@ -259,7 +267,7 @@ mod test {
         assert_eq!(inspection_mounts.len(), 1);
         let inspection_mount = inspection_mounts.first().unwrap();
         assert_eq!(inspection_mount.typ.as_ref().unwrap(), &typ.unwrap());
-        assert_eq!(inspection_mount.source.as_ref().unwrap(), &format!("/host_mnt/private{}", &source.unwrap()));
+        assert!(inspection_mount.source.as_ref().unwrap().ends_with(&source.unwrap()));
         assert_eq!(inspection_mount.destination.as_ref().unwrap(), &destination.unwrap());
         rt.block_on(async {
             docker.remove_container(&container_name, None::<RemoveContainerOptions>).await.unwrap();
