@@ -79,4 +79,4 @@ pub mod backup;
 pub mod restore;
 pub mod file;
 pub mod container;
-mod volume;
+pub mod cleanup;
