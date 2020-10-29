@@ -62,7 +62,7 @@ pub(crate) async fn run_docker_command(
     cmd: Vec<&str>,
     labels: Option<Vec<(&str, &str)>>,
 ) -> Result<(i64, Vec<LogOutput>)> {
-    if let Err(_) = docker.inspect_image(image).await {
+    if docker.inspect_image(image).await.is_err() {
         download_image(docker, image).await?;
     }
     log::debug!(
@@ -180,7 +180,7 @@ async fn get_or_build_image(docker: &Docker) -> Result<String> {
             let rev = output[0];
             let git_root = output[1];
             let image = format!("dockyard:{}", rev);
-            if let Err(_) = docker.inspect_image(&image).await {
+            if docker.inspect_image(&image).await.is_err() {
                 log::warn!("{} not found, building...", &image);
                 let context = build_context(git_root)?;
 
