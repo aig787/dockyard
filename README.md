@@ -5,6 +5,7 @@
 [![dockerhub](https://img.shields.io/docker/v/aig787/dockyard?label=dockerhub&sort=semver)](https://hub.docker.com/r/aig787/dockyard)
 [![crates.io](https://img.shields.io/crates/v/dockyard)](https://crates.io/crates/dockyard)
 [![docs](https://docs.rs/dockyard/badge.svg)](https://docs.rs/dockyard/)
+[![Coverage Status](https://coveralls.io/repos/github/aig787/dockyard/badge.svg?branch=agriffin/code-coverage)](https://coveralls.io/github/aig787/dockyard?branch=agriffin/code-coverage)
 
 ## Dockyard: Back up and restore Docker Resources
 
