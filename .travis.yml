@@ -14,11 +14,13 @@ jobs:
     - rust: nightly
   fast_finish: true
 
-before_script: |
-  make docker
-  if [[ "$TRAVIS_RUST_VERSION" == stable ]]; then
-    cargo install cargo-tarpaulin
-  fi
+before_script:
+  - ln -s .dockerignore.linux .dockerignore
+  - make docker
+  - |
+    if [[ "$TRAVIS_RUST_VERSION" == stable ]]; then
+      cargo install cargo-tarpaulin
+    fi
 
 script:
   - cargo clean
