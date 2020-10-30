@@ -1,24 +1,26 @@
 use anyhow::Result;
+use bollard::container::{
+    Config, CreateContainerOptions, InspectContainerOptions, LogOutput, LogsOptions,
+    RemoveContainerOptions, StartContainerOptions, WaitContainerOptions,
+};
+use bollard::image::{BuildImageOptions, CreateImageOptions};
+use bollard::models::{BuildInfo, CreateImageInfo, HostConfig, Mount, MountTypeEnum};
 use bollard::Docker;
-use bollard::container::{CreateContainerOptions, Config, StartContainerOptions, WaitContainerOptions, LogsOptions, LogOutput, RemoveContainerOptions, InspectContainerOptions};
-use bollard::models::{HostConfig, Mount, MountTypeEnum, ProgressDetail, BuildInfo};
-use uuid::Uuid;
-use futures::TryStreamExt;
-use log::LevelFilter;
-use std::process;
-use bollard::image::{CreateImageOptions, BuildImageOptions};
-use std::path::{Path, PathBuf};
-use std::process::Command;
-use std::fs::File;
-use tempfile::TempDir;
 use flate2::read::GzEncoder;
 use flate2::Compression;
-use std::io::{Read, BufReader};
+use futures::TryStreamExt;
+use futures_core::Stream;
+use log::LevelFilter;
+use std::fs::File;
+use std::io::Read;
+use std::process;
+use std::process::Command;
 use std::sync::atomic::AtomicU8;
 use std::sync::atomic::Ordering::Relaxed;
-use futures_core::Stream;
-use std::error::Error;
+use tempfile::TempDir;
+use uuid::Uuid;
 
+pub static PID_LABEL: &str = "com.aig787.dockyard.pid";
 static COMMAND_VERBOSITY: AtomicU8 = AtomicU8::new(0);
 
 pub fn set_command_verbosity(verbosity: u8) {
@@ -34,54 +36,104 @@ fn get_verbosity_arg() -> String {
     }
 }
 
-pub(crate) async fn run_docker_command(docker: &Docker, container_name: &str, image: &str, mounts: Option<Vec<Mount>>, cmd: Vec<&str>, labels: Option<Vec<(&str, &str)>>) -> Result<(i64, Vec<LogOutput>)> {
-    if let Err(_) = docker.inspect_image(image).await {
-        log::info!("Pulling {}", image);
-        docker.create_image(Some(CreateImageOptions {
-            from_image: image,
-            ..Default::default()
-        }), None, None)
-            .try_collect::<Vec<_>>()
-            .await?;
+pub(crate) async fn download_image(
+    docker: &Docker,
+    image: &str,
+) -> Result<Vec<CreateImageInfo>, bollard::errors::Error> {
+    log::info!("Pulling {}", image);
+    docker
+        .create_image(
+            Some(CreateImageOptions {
+                from_image: image,
+                ..Default::default()
+            }),
+            None,
+            None,
+        )
+        .try_collect::<Vec<_>>()
+        .await
+}
+
+pub(crate) async fn run_docker_command(
+    docker: &Docker,
+    container_name: &str,
+    image: &str,
+    mounts: Option<Vec<Mount>>,
+    cmd: Vec<&str>,
+    labels: Option<Vec<(&str, &str)>>,
+) -> Result<(i64, Vec<LogOutput>)> {
+    if docker.inspect_image(image).await.is_err() {
+        download_image(docker, image).await?;
     }
-    log::debug!("Running '{}' in container {}", cmd.join(" "), container_name);
-    log::trace!("Creating container {} with mounts: {:?}", container_name, mounts);
-    docker.create_container(Some(CreateContainerOptions { name: container_name }), Config {
-        cmd: Some(cmd),
-        image: Some(&image),
-        labels: labels.map(|l| l.into_iter().collect()),
-        host_config: Some(HostConfig {
-            mounts,
-            ..Default::default()
-        }),
-        ..Default::default()
-    }).await?;
+    log::debug!(
+        "Running '{}' in container {}",
+        cmd.join(" "),
+        container_name
+    );
+    log::trace!(
+        "Creating container {} with mounts: {:?}",
+        container_name,
+        mounts
+    );
+    docker
+        .create_container(
+            Some(CreateContainerOptions {
+                name: container_name,
+            }),
+            Config {
+                cmd: Some(cmd),
+                image: Some(&image),
+                labels: labels.map(|l| l.into_iter().collect()),
+                host_config: Some(HostConfig {
+                    mounts,
+                    ..Default::default()
+                }),
+                ..Default::default()
+            },
+        )
+        .await?;
 
     // Run command and wait for it to finish
-    docker.start_container(&container_name, None::<StartContainerOptions<String>>).await?;
-    docker.wait_container(&container_name, None::<WaitContainerOptions<String>>)
+    docker
+        .start_container(&container_name, None::<StartContainerOptions<String>>)
+        .await?;
+    docker
+        .wait_container(&container_name, None::<WaitContainerOptions<String>>)
         .try_collect::<Vec<_>>()
         .await?;
-    let logs = docker.logs(
-        &container_name,
-        Some(LogsOptions {
-            follow: true,
-            stdout: true,
-            stderr: true,
-            timestamps: false,
-            tail: "all".to_string(),
-            ..Default::default()
-        }),
-    ).try_collect::<Vec<_>>().await?;
+    let logs = docker
+        .logs(
+            &container_name,
+            Some(LogsOptions {
+                follow: true,
+                stdout: true,
+                stderr: true,
+                timestamps: false,
+                tail: "all".to_string(),
+                ..Default::default()
+            }),
+        )
+        .try_collect::<Vec<_>>()
+        .await?;
 
     // Inspect to get exit code
-    let inspection = docker.inspect_container(&container_name, None::<InspectContainerOptions>).await?;
+    let inspection = docker
+        .inspect_container(&container_name, None::<InspectContainerOptions>)
+        .await?;
     log::trace!("Removing container {}", &container_name);
-    docker.remove_container(&container_name, Some(RemoveContainerOptions {
-        force: true,
-        ..Default::default()
-    })).await?;
-    Ok((inspection.state.and_then(|s| s.exit_code).unwrap_or(0), logs))
+    docker
+        .remove_container(
+            &container_name,
+            Some(RemoveContainerOptions {
+                force: true,
+                ..Default::default()
+            }),
+        )
+        .await?;
+    Ok((
+        inspection.state.and_then(|s| s.exit_code).unwrap_or(0),
+        logs,
+    ))
 }
 
 /// Run command in dockyard Docker container
@@ -92,7 +144,11 @@ pub(crate) async fn run_docker_command(docker: &Docker, container_name: &str, im
 /// * `mounts` - Optional list of mounts to use in container
 /// * `cmd` - Command to run in container
 ///
-pub async fn run_dockyard_command(docker: &Docker, mounts: Option<Vec<Mount>>, mut args: Vec<&str>) -> Result<(i64, Vec<LogOutput>)> {
+pub async fn run_dockyard_command(
+    docker: &Docker,
+    mounts: Option<Vec<Mount>>,
+    mut args: Vec<&str>,
+) -> Result<(i64, Vec<LogOutput>)> {
     let mut cmd = vec!["dockyard"];
     let verbosity = get_verbosity_arg();
     cmd.append(&mut args);
@@ -103,9 +159,7 @@ pub async fn run_dockyard_command(docker: &Docker, mounts: Option<Vec<Mount>>, m
     let image = get_or_build_image(&docker).await?;
     let container_name = format!("dockyard_{}", Uuid::new_v4());
     let pid = process::id().to_string();
-    let labels = vec![
-        ("com.github.aig787.dockyard.pid", pid.as_str())
-    ];
+    let labels = vec![("com.github.aig787.dockyard.pid", pid.as_str())];
     run_docker_command(docker, &container_name, &image, mounts, cmd, Some(labels)).await
 }
 
@@ -114,52 +168,68 @@ async fn get_or_build_image(docker: &Docker) -> Result<String> {
         .arg("rev-parse")
         .arg("HEAD")
         .arg("--show-toplevel")
-        .output() {
+        .output()
+    {
         Ok(output) => {
-            let output = output.stdout.into_iter().map(|i| i as char).collect::<String>();
+            let output = output
+                .stdout
+                .into_iter()
+                .map(|i| i as char)
+                .collect::<String>();
             let output = output.split('\n').collect::<Vec<_>>();
             let rev = output[0];
             let git_root = output[1];
             let image = format!("dockyard:{}", rev);
-            if let Err(_) = docker.inspect_image(&image).await {
+            if docker.inspect_image(&image).await.is_err() {
                 log::warn!("{} not found, building...", &image);
                 let context = build_context(git_root)?;
 
-                let output = docker.build_image(BuildImageOptions {
-                    dockerfile: "Dockerfile",
-                    t: image.as_str(),
-                    q: false,
-                    ..Default::default()
-                }, None, Some(context.into()));
+                let output = docker.build_image(
+                    BuildImageOptions {
+                        dockerfile: "Dockerfile",
+                        t: image.as_str(),
+                        q: false,
+                        ..Default::default()
+                    },
+                    None,
+                    Some(context.into()),
+                );
                 stream_output(&image, output).await?;
             }
             Ok(image)
         }
-        Err(_) => Ok(format!("dockyard:{}", env!("VERGEN_SEMVER")))
+        Err(_) => Ok(format!("dockyard:{}", env!("VERGEN_SEMVER"))),
     }
 }
 
-
-async fn stream_output(prefix: &str, stream: impl Stream<Item=Result<BuildInfo, bollard::errors::Error>>) -> Result<(), bollard::errors::Error> {
+async fn stream_output(
+    prefix: &str,
+    stream: impl Stream<Item = Result<BuildInfo, bollard::errors::Error>>,
+) -> Result<(), bollard::errors::Error> {
     let print_lines = |prefix: &str, buffer: &mut String| {
         if let Some(index) = buffer.rfind('\n') {
-            buffer.drain(0..index).collect::<String>().lines().for_each(|line| {
-                if !line.is_empty() {
-                    log::info!("[{}] {}", prefix, line);
-                }
-            })
+            buffer
+                .drain(0..index)
+                .collect::<String>()
+                .lines()
+                .for_each(|line| {
+                    if !line.is_empty() {
+                        log::info!("[{}] {}", prefix, line);
+                    }
+                })
         }
     };
 
-
     let mut buffer = String::new();
-    stream.try_for_each(|info| {
-        if let Some(s) = info.stream {
-            buffer.push_str(s.as_str());
-        }
-        print_lines(prefix, &mut buffer);
-        futures::future::ok(())
-    }).await
+    stream
+        .try_for_each(|info| {
+            if let Some(s) = info.stream {
+                buffer.push_str(s.as_str());
+            }
+            print_lines(prefix, &mut buffer);
+            futures::future::ok(())
+        })
+        .await
 }
 
 fn build_context(root: &str) -> Result<Vec<u8>> {
@@ -189,7 +259,11 @@ fn build_context(root: &str) -> Result<Vec<u8>> {
 /// * `prefix` - Log output prefix
 /// * `logs` - Logs from container
 ///
-pub(crate) fn handle_container_output(exit_code: i64, prefix: &str, logs: &[LogOutput]) -> Result<()> {
+pub(crate) fn handle_container_output(
+    exit_code: i64,
+    prefix: &str,
+    logs: &[LogOutput],
+) -> Result<()> {
     match exit_code {
         0 => {
             print_logs(prefix, logs, LevelFilter::Debug);
@@ -209,7 +283,7 @@ pub(crate) fn print_logs(prefix: &str, logs: &[LogOutput], level: LevelFilter) {
             LevelFilter::Info => log::info!("{}", line_string),
             LevelFilter::Error => log::error!("{}", line_string),
             LevelFilter::Debug => log::debug!("{}", line_string),
-            _ => log::trace!("{}", line_string)
+            _ => log::trace!("{}", line_string),
         }
     }
 }

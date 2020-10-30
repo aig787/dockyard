@@ -8,6 +8,8 @@ args:
       help: Sets the level of verbosity
       global: true
 subcommands:
+  - cleanup:
+      about: Stop and remove all dockyarg containers
   - write:
       about: Write contents to file
       args:

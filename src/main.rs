@@ -1,21 +1,22 @@
-use std::collections::HashMap;
 use std::process::exit;
 
 #[macro_use]
 extern crate clap;
 
-use bollard::container::{ListContainersOptions, KillContainerOptions, RemoveContainerOptions};
+use anyhow::Result;
 use bollard::Docker;
 use clap::{App, ArgMatches};
+use dockyard::backup::{backup_container, backup_directory, backup_volume};
+use dockyard::cleanup::{cleanup_child_containers, cleanup_dockyard_containers};
+use dockyard::container::{
+    get_backup_directory_mount, get_backup_volume_mount, get_bind_mount, get_volume_mount,
+    set_command_verbosity,
+};
+use dockyard::file::{decode_and_write_file, read_and_encode_file, read_file, write_file};
+use dockyard::restore::{restore_container, restore_directory, restore_volume};
 use log::LevelFilter;
 use simple_logger::SimpleLogger;
 use tokio::runtime::Runtime;
-use anyhow::Result;
-use std::process;
-use dockyard::backup::{backup_directory, backup_volume, backup_container};
-use dockyard::file::{write_file, decode_and_write_file, read_and_encode_file, read_file};
-use dockyard::restore::{restore_directory, restore_volume, restore_container};
-use dockyard::container::{get_backup_volume_mount, get_backup_directory_mount, set_command_verbosity, get_bind_mount, get_volume_mount};
 
 fn main() {
     let yaml = load_yaml!("cli.yml");
@@ -29,7 +30,7 @@ fn main() {
         0 => (LevelFilter::Warn, LevelFilter::Info),
         1 => (LevelFilter::Warn, LevelFilter::Debug),
         2 => (LevelFilter::Info, LevelFilter::Trace),
-        _ => (LevelFilter::Debug, LevelFilter::Trace)
+        _ => (LevelFilter::Debug, LevelFilter::Trace),
     };
 
     SimpleLogger::new()
@@ -51,10 +52,18 @@ fn main() {
                 exit(1)
             }
         }
-    }).expect("Error setting Ctrl-C handler");
+    })
+    .expect("Error setting Ctrl-C handler");
 
-    let (rt, docker) = init_docker().unwrap();
+    let (mut rt, docker) = init_docker().unwrap();
     let result = match args.subcommand() {
+        ("cleanup", _) => {
+            log::info!("Cleaning up all dockyard containers");
+            rt.block_on(cleanup_dockyard_containers(&docker)).map(|_| {
+                log::info!("Successfully cleaned up all dockyard containers");
+                0
+            })
+        }
         ("write", Some(subargs)) => {
             let contents = subargs.value_of("contents").unwrap();
             let file = subargs.value_of("file").unwrap();
@@ -62,7 +71,8 @@ fn main() {
                 decode_and_write_file(contents, file)
             } else {
                 write_file(contents, file)
-            }.map(|_| 0)
+            }
+            .map(|_| 0)
         }
         ("cat", Some(subargs)) => {
             let file = subargs.value_of("file").unwrap();
@@ -70,14 +80,15 @@ fn main() {
                 read_and_encode_file(file)
             } else {
                 read_file(file)
-            }.map(|contents| {
+            }
+            .map(|contents| {
                 println!("{}", contents);
                 0
             })
         }
         ("backup", Some(subcommand)) => run_backup(&docker, rt, subcommand),
         ("restore", Some(subcommand)) => run_restore(&docker, rt, subcommand),
-        _ => print_usage(&args)
+        _ => print_usage(&args),
     };
 
     match result {
@@ -115,7 +126,13 @@ fn run_restore(docker: &Docker, mut rt: Runtime, subcommand: &ArgMatches) -> Res
             } else {
                 get_backup_volume_mount(input.to_string())
             };
-            rt.block_on(restore_volume(&docker, archive.to_string(), backup_mount, volume_mount)).map(|_| 0)
+            rt.block_on(restore_volume(
+                &docker,
+                archive.to_string(),
+                backup_mount,
+                volume_mount,
+            ))
+            .map(|_| 0)
         }
         ("container", Some(subargs)) => {
             let file = subargs.value_of("FILE").unwrap();
@@ -129,7 +146,7 @@ fn run_restore(docker: &Docker, mut rt: Runtime, subcommand: &ArgMatches) -> Res
             rt.block_on(restore_container(&docker, file, name, backup_mount))
                 .map(|_| 0)
         }
-        _ => print_usage(subcommand)
+        _ => print_usage(subcommand),
     }
 }
 
@@ -140,7 +157,11 @@ fn run_backup(docker: &Docker, mut rt: Runtime, subcommand: &ArgMatches) -> Resu
             let input = subargs.value_of("INPUT").unwrap();
             let output = subargs.value_of("OUTPUT").unwrap();
             backup_directory(archive_name, input, output).map(|p| {
-                log::info!("Successfully backed up directory {} to {}", input, p.display());
+                log::info!(
+                    "Successfully backed up directory {} to {}",
+                    input,
+                    p.display()
+                );
                 0
             })
         }
@@ -153,43 +174,40 @@ fn run_backup(docker: &Docker, mut rt: Runtime, subcommand: &ArgMatches) -> Resu
                 get_backup_volume_mount(output.to_string())
             };
             match subcommand {
-                "volume" =>
-                    rt.block_on(backup_volume(&docker, resource_name.to_string(), backup_mount))
-                        .map(|p| {
-                            log::info!("Successfully backed up volume {} to {}", resource_name, p.display());
-                            0
-                        }),
-                "container" =>
-                    rt.block_on(backup_container(&docker, resource_name, backup_mount, subargs.values_of_lossy("volumes")))
-                        .map(|p| {
-                            log::info!("Successfully backed up container {} to {}", resource_name, p.display());
-                            0
-                        }),
-                _ => print_usage(subargs)
+                "volume" => rt
+                    .block_on(backup_volume(
+                        &docker,
+                        resource_name.to_string(),
+                        backup_mount,
+                    ))
+                    .map(|p| {
+                        log::info!(
+                            "Successfully backed up volume {} to {}",
+                            resource_name,
+                            p.display()
+                        );
+                        0
+                    }),
+                "container" => rt
+                    .block_on(backup_container(
+                        &docker,
+                        resource_name,
+                        backup_mount,
+                        subargs.values_of_lossy("volumes"),
+                    ))
+                    .map(|p| {
+                        log::info!(
+                            "Successfully backed up container {} to {}",
+                            resource_name,
+                            p.display()
+                        );
+                        0
+                    }),
+                _ => print_usage(subargs),
             }
         }
-        _ => print_usage(subcommand)
+        _ => print_usage(subcommand),
     }
-}
-
-async fn cleanup_child_containers(docker: &Docker) -> Result<()> {
-    let label = format!("com.github.aig787.dockyard.pid={}", process::id().to_string());
-    let filters: HashMap<&str, Vec<&str>> = vec![("label", vec![label.as_str()])].into_iter().collect();
-    let containers = docker.list_containers(Some(ListContainersOptions {
-        all: true,
-        filters,
-        ..Default::default()
-    })).await?;
-    for container in containers {
-        let id = container.id.unwrap();
-        if container.state.unwrap().to_lowercase() != "exited" {
-            log::info!("Killing container {}", id);
-            docker.kill_container(id.as_str(), None::<KillContainerOptions<String>>).await?;
-        }
-        log::info!("Removing container {}", id);
-        docker.remove_container(id.as_str(), None::<RemoveContainerOptions>).await?;
-    }
-    Ok(())
 }
 
 fn init_docker() -> Result<(Runtime, Docker)> {
