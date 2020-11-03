@@ -91,7 +91,7 @@ async fn get_containers_by_pid(docker: &Docker, pid: u32) -> Result<Vec<Containe
 async fn get_dockyard_containers(docker: &Docker) -> Result<Vec<ContainerSummaryInner>> {
     get_containers_by_label(
         docker,
-        vec![DOCKYARD_COMMAND_LABEL.to_string(), "true".to_string()],
+        vec![format!("{}={}", DOCKYARD_COMMAND_LABEL, "true")],
     )
     .await
 }
