@@ -24,6 +24,7 @@ use tempfile::TempDir;
 use uuid::Uuid;
 
 pub static PID_LABEL: &str = "com.github.aig787.dockyard.pid";
+pub static DOCKYARD_COMMAND_LABEL: &str = "com.github.aig787.dockyard.command";
 
 static COMMAND_VERBOSITY: AtomicU8 = AtomicU8::new(0);
 
@@ -114,7 +115,7 @@ pub(crate) async fn run_docker_command(
             vec![]
         }
         _ => {
-            docker
+            let container_logs = docker
                 .logs(
                     &container_name,
                     Some(LogsOptions {
@@ -127,7 +128,18 @@ pub(crate) async fn run_docker_command(
                     }),
                 )
                 .try_collect::<Vec<_>>()
-                .await?
+                .await;
+            match container_logs {
+                Ok(l) => l,
+                Err(e) => {
+                    log::warn!(
+                        "Error retrieving logs from container {}: {}",
+                        &container_name,
+                        e
+                    );
+                    vec![]
+                }
+            }
         }
     };
 

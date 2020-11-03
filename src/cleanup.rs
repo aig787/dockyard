@@ -1,7 +1,7 @@
-use crate::container::PID_LABEL;
+use crate::container::{DOCKYARD_COMMAND_LABEL, PID_LABEL};
 use anyhow::Result;
 use bollard::container::{KillContainerOptions, ListContainersOptions, RemoveContainerOptions};
-use bollard::models::ContainerSummaryInner;
+use bollard::models::{ContainerStateStatusEnum, ContainerSummaryInner};
 use bollard::Docker;
 use std::collections::HashMap;
 use std::process;
@@ -50,12 +50,18 @@ async fn stop_and_remove_containers(
         let id = container.id.unwrap();
         let names = container.names.unwrap();
         let name = names.first().unwrap();
-        let state = container.state.unwrap().to_lowercase();
-        if state == "running" {
+        let state = container.state.unwrap();
+        log::info!("Container {} has state {}", &name, &state);
+        if state == ContainerStateStatusEnum::RUNNING.to_string()
+            || state == ContainerStateStatusEnum::CREATED.to_string()
+        {
             log::info!("Killing container {}", &name);
-            docker
+            if let Err(e) = docker
                 .kill_container(&id, None::<KillContainerOptions<String>>)
-                .await?;
+                .await
+            {
+                log::warn!("Failed to kill container {}: {}", &name, e)
+            }
         }
         log::info!("Removing container {}", &name);
         docker
@@ -83,7 +89,11 @@ async fn get_containers_by_pid(docker: &Docker, pid: u32) -> Result<Vec<Containe
 /// * `docker` - Docker client
 ///
 async fn get_dockyard_containers(docker: &Docker) -> Result<Vec<ContainerSummaryInner>> {
-    get_containers_by_label(docker, vec![PID_LABEL.to_string()]).await
+    get_containers_by_label(
+        docker,
+        vec![DOCKYARD_COMMAND_LABEL.to_string(), "true".to_string()],
+    )
+    .await
 }
 
 pub(crate) async fn get_all_containers(docker: &Docker) -> Result<Vec<ContainerSummaryInner>> {
