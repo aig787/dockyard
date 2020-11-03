@@ -1,4 +1,4 @@
-use std::fs::{create_dir_all, File};
+use std::fs::{copy, create_dir_all, File};
 use std::path::{Path, PathBuf};
 
 use crate::container::{handle_container_output, run_dockyard_command};
@@ -38,39 +38,64 @@ pub struct ContainerBackup {
 /// * `input` - Directory to back up
 /// * `output` - Output directory of archive
 ///
-pub fn backup_directory(name: &str, input: &str, output: &str) -> Result<PathBuf> {
+pub fn backup_directory(input: &str, output: &str) -> Result<PathBuf> {
     let input_path = Path::new(input);
     let output_path = Path::new(output);
-    let archive_path = output_path.join(name);
-    create_dir_all(archive_path.parent().unwrap())?;
-    log::info!(
-        "Backing up directory {} to {}",
-        input_path.display(),
-        archive_path.display()
-    );
-    let archive = File::create(&archive_path)
-        .with_context(|| format!("Unable to create file {}", archive_path.display()))?;
-    let enc = GzEncoder::new(archive, Compression::default());
-    let mut tar = tar::Builder::new(enc);
-    tar.append_dir_all("", input_path).with_context(|| {
-        format!(
-            "Failed to create tarball {} from {}",
-            archive_path.display(),
-            input
-        )
-    })?;
-    Ok(archive_path)
+    let name = Utc::now().to_rfc3339();
+
+    let path = if input_path.is_dir() {
+        let backup_path = output_path.join(format!("{}.tgz", &name));
+        create_directory(backup_path.as_path())?;
+        log::info!(
+            "Backing up directory {} to {}",
+            input_path.display(),
+            backup_path.display()
+        );
+        let archive = File::create(&backup_path)
+            .with_context(|| format!("Unable to create file {}", &backup_path.display()))?;
+        let enc = GzEncoder::new(archive, Compression::default());
+        let mut tar = tar::Builder::new(enc);
+        tar.append_dir_all("", input_path).with_context(|| {
+            format!(
+                "Failed to create tarball {} from {}",
+                &backup_path.display(),
+                input
+            )
+        })?;
+        backup_path
+    } else {
+        let backup_path = output_path.join(&name);
+        create_directory(backup_path.as_path())?;
+        log::info!(
+            "Backing up file {} to {}",
+            input_path.display(),
+            &backup_path.display()
+        );
+        copy(input_path, &backup_path)?;
+        backup_path
+    };
+    Ok(path.strip_prefix(output_path)?.to_path_buf())
+}
+
+fn create_directory(path: &Path) -> Result<()> {
+    let directory = if path.is_dir() {
+        path
+    } else {
+        path.parent().unwrap()
+    };
+    log::info!("Creating directory {}", directory.display());
+    create_dir_all(directory)?;
+    Ok(())
 }
 
 pub async fn backup_directory_to_mount(
     docker: &Docker,
-    name: String,
     input: String,
     output: String,
     mount: Mount,
 ) -> Result<PathBuf> {
     log::info!(
-        "Backing up directory {} to {} on {}",
+        "Backing up directory {} to {}/ on {}",
         &input,
         output,
         mount.source.as_ref().unwrap()
@@ -87,14 +112,22 @@ pub async fn backup_directory_to_mount(
     let args = vec![
         "backup",
         "directory",
-        "--name",
-        &name,
         mounted_input.to_str().unwrap(),
         mounted_output.to_str().unwrap(),
     ];
     let (exit_code, logs) =
         run_dockyard_command(docker, Some(vec![input_mount, mount]), args).await?;
-    handle_container_output(exit_code, &log_prefix, &logs).map(|_| Path::new(&output).join(name))
+    let output_path = logs
+        .last()
+        .unwrap()
+        .to_string()
+        .trim()
+        .split_ascii_whitespace()
+        .last()
+        .unwrap()
+        .to_string();
+    handle_container_output(exit_code, &log_prefix, &logs)
+        .map(|_| Path::new(&output).join(output_path))
 }
 
 /// Back up volume
@@ -120,21 +153,33 @@ pub async fn backup_volume(
         backup_mount,
     ];
     let output = Path::new("dockyard/volumes").join(&volume);
-    log::info!("Backing up volume {} to {}", &volume, output.display());
-    let archive = output.join(format!("{}.tgz", Utc::now().to_rfc3339()));
+    log::info!(
+        "Backing up volume {} to {} on {}",
+        &volume,
+        output.display(),
+        mounts[0].source.as_ref().unwrap()
+    );
+    let mounted_output = Path::new("/backup").join(&output);
     let args = vec![
         "backup",
         "directory",
-        "--name",
-        &archive.to_str().unwrap(),
         "/volume",
-        "/backup",
+        mounted_output.to_str().unwrap(),
     ];
     let log_prefix = format!("backup volume {}", &volume);
     match run_dockyard_command(docker, Some(mounts), args).await {
-        Ok((exit_code, logs)) => {
-            handle_container_output(exit_code, &log_prefix, &logs).map(|_| archive)
-        }
+        Ok((exit_code, logs)) => handle_container_output(exit_code, &log_prefix, &logs).map(|_| {
+            let archive_name = logs
+                .last()
+                .unwrap()
+                .to_string()
+                .trim()
+                .split_ascii_whitespace()
+                .last()
+                .unwrap()
+                .to_string();
+            output.join(archive_name)
+        }),
         Err(e) => Err(e),
     }
 }
@@ -156,27 +201,33 @@ pub async fn backup_container(
     volumes: Option<Vec<String>>,
 ) -> Result<PathBuf> {
     let output = Path::new("dockyard/containers").join(container_name);
-    log::info!("Backing up {} to {}", container_name, output.display());
+    log::info!(
+        "Backing up container {} to {}",
+        container_name,
+        output.display()
+    );
     let (info, mounts) = get_container_info(docker, container_name, volumes).await?;
     let mut mount_backup_processes = vec![];
     for mp in mounts {
         if mp.typ.as_ref().unwrap() == "bind" {
-            let output = format!(
-                "dockyard/binds/{}",
-                mp.source.as_ref().unwrap().replace("/", ":")
-            );
-            let archive = format!("{}.tgz", Utc::now().to_rfc3339());
-            let directory = mp.source.as_ref().unwrap().clone();
-            mount_backup_processes.push((
-                mp,
-                Either::Left(backup_directory_to_mount(
-                    docker,
-                    archive,
-                    directory,
-                    output,
-                    backup_mount.clone(),
-                )),
-            ));
+            if mp.source.as_ref().unwrap() == "/var/run/docker.sock" {
+                log::info!("Ignoring bind /var/run/docker.sock")
+            } else {
+                let output = format!(
+                    "dockyard/binds/{}",
+                    mp.source.as_ref().unwrap().replace("/", ":")
+                );
+                let directory = mp.source.as_ref().unwrap().clone();
+                mount_backup_processes.push((
+                    mp,
+                    Either::Left(backup_directory_to_mount(
+                        docker,
+                        directory,
+                        output,
+                        backup_mount.clone(),
+                    )),
+                ));
+            }
         } else {
             let volume_name = mp.name.as_ref().unwrap().clone();
             mount_backup_processes.push((
@@ -357,7 +408,7 @@ async fn write_container_backup(
 #[cfg(test)]
 mod test {
     use std::fs;
-    use std::fs::create_dir;
+    use std::fs::{create_dir, read_to_string};
     use std::io::Write;
 
     use flate2::read::GzDecoder;
@@ -367,7 +418,7 @@ mod test {
     use tempfile::TempDir;
 
     use super::*;
-    use crate::container::get_backup_directory_mount;
+    use crate::container::{download_image, get_backup_directory_mount};
     use bollard::container::{
         Config, CreateContainerOptions, KillContainerOptions, RemoveContainerOptions,
         StartContainerOptions,
@@ -376,6 +427,26 @@ mod test {
     use bollard::volume::{CreateVolumeOptions, RemoveVolumeOptions};
     use tokio::runtime::Runtime;
     use uuid::Uuid;
+
+    #[test]
+    fn backup_file_test() {
+        let _ = SimpleLogger::new().with_level(LevelFilter::Info).init();
+        let working_dir = TempDir::new().unwrap();
+        let input = working_dir.path().join("input");
+        let output = working_dir.path().join("output");
+        let contents = "I am some contents";
+        File::create(&input)
+            .unwrap()
+            .write_all(contents.as_bytes())
+            .unwrap();
+        create_dir(&output).unwrap();
+
+        let created = backup_directory(input.to_str().unwrap(), output.to_str().unwrap()).unwrap();
+        assert_eq!(
+            read_to_string(output.join(created)).unwrap(),
+            contents.to_string()
+        );
+    }
 
     #[test]
     fn backup_directory_test() {
@@ -392,13 +463,8 @@ mod test {
                 .unwrap();
         }
 
-        let created = backup_directory(
-            "test.tgz",
-            input.to_str().unwrap(),
-            output.to_str().unwrap(),
-        )
-        .unwrap();
-        let tar_file = File::open(created).unwrap();
+        let created = backup_directory(input.to_str().unwrap(), output.to_str().unwrap()).unwrap();
+        let tar_file = File::open(output.join(created)).unwrap();
 
         let tar = GzDecoder::new(tar_file);
         let mut archive = Archive::new(tar);
@@ -423,15 +489,8 @@ mod test {
     #[test]
     fn backup_directory_bad_paths_test() {
         let _ = SimpleLogger::new().with_level(LevelFilter::Info).init();
-        let error = backup_directory("test.tgz", "/tmp/one/bad", "/tmp/two/bad").unwrap_err();
-        assert_eq!(
-            error.to_string(),
-            "Failed to create tarball /tmp/two/bad/test.tgz from /tmp/one/bad"
-        );
-        assert_eq!(
-            error.root_cause().to_string(),
-            "No such file or directory (os error 2)"
-        )
+        let error = backup_directory("/tmp/one/bad", "/tmp/two/bad").unwrap_err();
+        assert_eq!(error.to_string(), "No such file or directory (os error 2)")
     }
 
     #[test]
@@ -555,11 +614,13 @@ mod test {
         name: &str,
         mounts: Vec<Mount>,
     ) -> Result<()> {
+        let image = "alpine:latest";
+        download_image(docker, image).await.unwrap();
         docker
             .create_container(
                 Some(CreateContainerOptions { name }),
                 Config {
-                    image: Some("alpine:latest"),
+                    image: Some(image),
                     cmd: Some(vec!["tail", "-f", "/dev/null"]),
                     host_config: Some(HostConfig {
                         mounts: Some(mounts),

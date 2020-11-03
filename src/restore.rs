@@ -384,7 +384,11 @@ mod test {
         archive_path
     }
 
-    async fn copy_from_volume(docker: &Docker, volume: &str, destination: &str) -> Result<()> {
+    pub(crate) async fn copy_from_volume(
+        docker: &Docker,
+        volume: &str,
+        destination: &str,
+    ) -> Result<()> {
         let mounts = vec![
             Mount {
                 source: Some(volume.to_string()),

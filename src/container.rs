@@ -1,3 +1,4 @@
+use crate::watch::DISABLED_LABEL;
 use anyhow::Result;
 use bollard::container::{
     Config, CreateContainerOptions, InspectContainerOptions, LogOutput, LogsOptions,
@@ -21,7 +22,6 @@ use tempfile::TempDir;
 use uuid::Uuid;
 
 pub static PID_LABEL: &str = "com.github.aig787.dockyard.pid";
-pub static COMMAND_LABEL: &str = "com.github.aig787.dockyard.command";
 
 static COMMAND_VERBOSITY: AtomicU8 = AtomicU8::new(0);
 
@@ -38,7 +38,7 @@ fn get_verbosity_arg() -> String {
     }
 }
 
-pub(crate) async fn download_image(
+pub async fn download_image(
     docker: &Docker,
     image: &str,
 ) -> Result<Vec<CreateImageInfo>, bollard::errors::Error> {
@@ -161,7 +161,7 @@ pub async fn run_dockyard_command(
     let image = get_or_build_image(&docker).await?;
     let container_name = format!("dockyard_{}", Uuid::new_v4());
     let pid = process::id().to_string();
-    let labels = vec![(PID_LABEL, pid.as_str()), (COMMAND_LABEL, cmd[1])];
+    let labels = vec![(PID_LABEL, pid.as_str()), (DISABLED_LABEL, "true")];
     run_docker_command(docker, &container_name, &image, mounts, cmd, Some(labels)).await
 }
 

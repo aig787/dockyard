@@ -1,6 +1,5 @@
 use crate::backup::backup_container;
 use crate::cleanup::get_all_containers;
-use crate::container::COMMAND_LABEL;
 use anyhow::Result;
 use bollard::models::{ContainerSummaryInner, Mount};
 use bollard::Docker;
@@ -9,7 +8,7 @@ use cron::Schedule;
 use std::str::FromStr;
 use tokio::time;
 
-pub const ENABLED_LABEL: &str = "com.github.aig787.dockyard.enabled";
+pub const DISABLED_LABEL: &str = "com.github.aig787.dockyard.disabled";
 
 pub async fn backup_on_interval(docker: &Docker, cron: &str, backup_mount: Mount) -> Result<()> {
     let schedule = match Schedule::from_str(cron) {
@@ -72,11 +71,7 @@ fn should_back_up(container_summary: &ContainerSummaryInner) -> bool {
                 &container_summary.names.as_ref().unwrap().first().unwrap(),
                 &container_summary.labels.as_ref().unwrap()
             );
-            let enabled = labels
-                .get(ENABLED_LABEL)
-                .map(String::as_str)
-                .unwrap_or("true");
-            enabled != "false" && !labels.contains_key(COMMAND_LABEL)
+            !labels.contains_key(DISABLED_LABEL)
         }
     }
 }

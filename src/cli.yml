@@ -73,12 +73,6 @@ subcommands:
                   help: Output directory
                   required: true
                   index: 2
-              - name:
-                  help: Output archive name
-                  short: n
-                  long: name
-                  value_name: NAME
-                  required: true
         - volume:
             about: Back up Docker volume
             args:

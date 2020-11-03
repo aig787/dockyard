@@ -13,7 +13,9 @@ use std::process;
 /// * `docker` - Docker client
 ///
 pub async fn cleanup_dockyard_containers(docker: &Docker) -> Result<()> {
-    stop_and_remove_containers(docker, get_dockyard_containers(docker).await?).await
+    let containers = get_dockyard_containers(docker).await?;
+    log::info!("Removing {} dockyard containers", containers.len());
+    stop_and_remove_containers(docker, containers).await
 }
 
 /// Stop and remove all child containers
@@ -105,7 +107,7 @@ pub(crate) async fn get_containers_by_label(
     docker: &Docker,
     labels: Vec<String>,
 ) -> Result<Vec<ContainerSummaryInner>> {
-    log::info!("Getting containers for labels {}", labels.join(","));
+    log::debug!("Getting containers for labels {}", labels.join(","));
     match docker
         .list_containers(Some(ListContainersOptions {
             all: true,

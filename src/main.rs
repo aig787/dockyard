@@ -170,10 +170,9 @@ async fn run_watch(docker: &Docker, args: &ArgMatches<'_>) -> Result<i32> {
 async fn run_backup(docker: &Docker, subcommand: &ArgMatches<'_>) -> Result<i32> {
     match subcommand.subcommand() {
         ("directory", Some(subargs)) => {
-            let archive_name = subargs.value_of("name").unwrap();
             let input = subargs.value_of("INPUT").unwrap();
             let output = subargs.value_of("OUTPUT").unwrap();
-            backup_directory(archive_name, input, output).map(|p| {
+            backup_directory(input, output).map(|p| {
                 log::info!(
                     "Successfully backed up directory {} to {}",
                     input,
