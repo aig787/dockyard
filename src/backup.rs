@@ -163,7 +163,7 @@ pub async fn backup_container(
         if mp.typ.as_ref().unwrap() == "bind" {
             let output = format!(
                 "dockyard/binds/{}",
-                mp.destination.as_ref().unwrap().replace("/", ":")
+                mp.source.as_ref().unwrap().replace("/", ":")
             );
             let archive = format!("{}.tgz", Utc::now().to_rfc3339());
             let directory = mp.source.as_ref().unwrap().clone();
