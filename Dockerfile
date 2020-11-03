@@ -15,5 +15,8 @@ COPY src src
 RUN cargo build --release
 
 FROM debian:stable-slim
+ENV OUTPUT_TYPE="directory"
+ENV OUTPUT_LOCATION="/tmp"
+ENV CRON="0 0 0 * * * *"
 COPY --from=application /opt/dockyard/target/release/dockyard /usr/local/bin/dockyard
-CMD ["/usr/local/bin/dockyard", "watch"]
+CMD /usr/local/bin/dockyard watch --cron "${CRON}" --output-type ${OUTPUT_TYPE} ${OUTPUT_LOCATION}

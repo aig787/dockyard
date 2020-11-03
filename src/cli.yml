@@ -21,10 +21,6 @@ subcommands:
             value_name: OUTPUT_TYPE
             possible_values: ["volume", "directory"]
             default_value: "directory"
-        - volumes:
-            help: List of volumes to back up
-            long: volumes
-            min_values: 1
         - cron:
             help: Cron expression for backup interval (default every day at 00:00)
             long: cron
