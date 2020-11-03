@@ -5,7 +5,6 @@ use bollard::models::Mount;
 use bollard::Docker;
 use chrono::Utc;
 use cron::Schedule;
-use std::collections::HashMap;
 use std::str::FromStr;
 use tokio::time;
 
@@ -27,7 +26,7 @@ pub async fn backup_on_interval(docker: &Docker, cron: &str, backup_mount: Mount
                 datetime,
                 now
             );
-            time::Duration::zero()
+            time::Duration::from_secs(0)
         } else {
             time::Duration::from_secs((datetime_epoch - now_epoch) as u64)
         };
