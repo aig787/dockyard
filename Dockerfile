@@ -16,4 +16,4 @@ RUN cargo build --release
 
 FROM debian:stable-slim
 COPY --from=application /opt/dockyard/target/release/dockyard /usr/local/bin/dockyard
-CMD ["/usr/local/bin/dockyard", "--help"]
+CMD ["/usr/local/bin/dockyard", "watch"]
