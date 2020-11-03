@@ -21,6 +21,8 @@ use tempfile::TempDir;
 use uuid::Uuid;
 
 pub static PID_LABEL: &str = "com.github.aig787.dockyard.pid";
+pub static COMMAND_LABEL: &str = "com.github.aig787.dockyard.command";
+
 static COMMAND_VERBOSITY: AtomicU8 = AtomicU8::new(0);
 
 pub fn set_command_verbosity(verbosity: u8) {
@@ -159,7 +161,7 @@ pub async fn run_dockyard_command(
     let image = get_or_build_image(&docker).await?;
     let container_name = format!("dockyard_{}", Uuid::new_v4());
     let pid = process::id().to_string();
-    let labels = vec![(PID_LABEL, pid.as_str())];
+    let labels = vec![(PID_LABEL, pid.as_str()), (COMMAND_LABEL, cmd[1])];
     run_docker_command(docker, &container_name, &image, mounts, cmd, Some(labels)).await
 }
 

@@ -1,7 +1,8 @@
 use crate::backup::backup_container;
 use crate::cleanup::get_all_containers;
+use crate::container::COMMAND_LABEL;
 use anyhow::Result;
-use bollard::models::Mount;
+use bollard::models::{ContainerSummaryInner, Mount};
 use bollard::Docker;
 use chrono::Utc;
 use cron::Schedule;
@@ -9,7 +10,6 @@ use std::str::FromStr;
 use tokio::time;
 
 pub const ENABLED_LABEL: &str = "com.github.aig787.dockyard.enabled";
-const ENABLED_VALUE: &str = "true";
 
 pub async fn backup_on_interval(docker: &Docker, cron: &str, backup_mount: Mount) -> Result<()> {
     let schedule = match Schedule::from_str(cron) {
@@ -46,24 +46,7 @@ async fn backup_all_containers(docker: &Docker, backup_mount: &Mount) -> Result<
     let containers = get_all_containers(docker)
         .await?
         .into_iter()
-        .filter(|container| {
-            let dockyard_enabled = match container.labels.as_ref() {
-                Some(labels) => labels
-                    .get(ENABLED_LABEL)
-                    .map(|s| s.as_str())
-                    .unwrap_or(ENABLED_VALUE),
-                None => ENABLED_VALUE,
-            };
-            if dockyard_enabled == "false" {
-                log::info!(
-                    "Ignoring container {}",
-                    container.names.as_ref().unwrap().first().unwrap()
-                );
-                false
-            } else {
-                true
-            }
-        })
+        .filter(|container| should_back_up(container))
         .collect::<Vec<_>>();
     log::info!("Found {} running containers", containers.len());
     for container in containers {
@@ -78,4 +61,22 @@ async fn backup_all_containers(docker: &Docker, backup_mount: &Mount) -> Result<
         );
     }
     Ok(())
+}
+
+fn should_back_up(container_summary: &ContainerSummaryInner) -> bool {
+    match &container_summary.labels {
+        None => true,
+        Some(labels) => {
+            log::debug!(
+                "Found {} with labels {:?}",
+                &container_summary.names.as_ref().unwrap().first().unwrap(),
+                &container_summary.labels.as_ref().unwrap()
+            );
+            let enabled = labels
+                .get(ENABLED_LABEL)
+                .map(String::as_str)
+                .unwrap_or("true");
+            enabled != "false" && !labels.contains_key(COMMAND_LABEL)
+        }
+    }
 }

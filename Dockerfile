@@ -15,6 +15,7 @@ COPY src src
 RUN cargo build --release
 
 FROM debian:stable-slim
+LABEL com.github.aig787.dockyard.command=watch
 ENV OUTPUT_TYPE="directory"
 ENV OUTPUT_LOCATION="/tmp"
 ENV CRON="0 0 0 * * * *"
