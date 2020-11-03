@@ -5,7 +5,9 @@ use bollard::container::{
     RemoveContainerOptions, StartContainerOptions, WaitContainerOptions,
 };
 use bollard::image::{BuildImageOptions, CreateImageOptions};
-use bollard::models::{BuildInfo, CreateImageInfo, HostConfig, Mount, MountTypeEnum};
+use bollard::models::{
+    BuildInfo, ContainerStateStatusEnum, CreateImageInfo, HostConfig, Mount, MountTypeEnum,
+};
 use bollard::Docker;
 use flate2::read::GzEncoder;
 use flate2::Compression;
@@ -103,25 +105,32 @@ pub(crate) async fn run_docker_command(
         .wait_container(&container_name, None::<WaitContainerOptions<String>>)
         .try_collect::<Vec<_>>()
         .await?;
-    let logs = docker
-        .logs(
-            &container_name,
-            Some(LogsOptions {
-                follow: true,
-                stdout: true,
-                stderr: true,
-                timestamps: false,
-                tail: "all".to_string(),
-                ..Default::default()
-            }),
-        )
-        .try_collect::<Vec<_>>()
-        .await?;
-
-    // Inspect to get exit code
     let inspection = docker
         .inspect_container(&container_name, None::<InspectContainerOptions>)
         .await?;
+    let logs = match inspection.state.as_ref().and_then(|s| s.status) {
+        Some(ContainerStateStatusEnum::DEAD) | Some(ContainerStateStatusEnum::REMOVING) => {
+            log::trace!("Not pulling logs from dead or removing container");
+            vec![]
+        }
+        _ => {
+            docker
+                .logs(
+                    &container_name,
+                    Some(LogsOptions {
+                        follow: true,
+                        stdout: true,
+                        stderr: true,
+                        timestamps: false,
+                        tail: "all".to_string(),
+                        ..Default::default()
+                    }),
+                )
+                .try_collect::<Vec<_>>()
+                .await?
+        }
+    };
+
     log::trace!("Removing container {}", &container_name);
     docker
         .remove_container(
