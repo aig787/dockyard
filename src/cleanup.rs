@@ -23,7 +23,14 @@ pub async fn cleanup_dockyard_containers(docker: &Docker) -> Result<()> {
 /// * `docker` - Docker client
 ///
 pub async fn cleanup_child_containers(docker: &Docker) -> Result<()> {
-    stop_and_remove_containers(docker, get_containers_by_pid(docker, process::id()).await?).await
+    let pid = process::id();
+    let containers = get_containers_by_pid(docker, pid).await?;
+    log::info!(
+        "Removing {} child containers for PID {}",
+        containers.len(),
+        pid
+    );
+    stop_and_remove_containers(docker, containers).await
 }
 
 /// Stop and remove specified containers
@@ -64,7 +71,7 @@ async fn stop_and_remove_containers(
 /// * `pid` - PID of dockyard process
 ///
 async fn get_containers_by_pid(docker: &Docker, pid: u32) -> Result<Vec<ContainerSummaryInner>> {
-    get_containers_by_label(docker, vec![format!("{}={}", PID_LABEL, pid).as_str()]).await
+    get_containers_by_label(docker, vec![format!("{}={}", PID_LABEL, pid)]).await
 }
 
 /// Return all containers started by dockyard
@@ -74,7 +81,17 @@ async fn get_containers_by_pid(docker: &Docker, pid: u32) -> Result<Vec<Containe
 /// * `docker` - Docker client
 ///
 async fn get_dockyard_containers(docker: &Docker) -> Result<Vec<ContainerSummaryInner>> {
-    get_containers_by_label(docker, vec![PID_LABEL]).await
+    get_containers_by_label(docker, vec![PID_LABEL.to_string()]).await
+}
+
+pub(crate) async fn get_all_containers(docker: &Docker) -> Result<Vec<ContainerSummaryInner>> {
+    match docker
+        .list_containers(None::<ListContainersOptions<String>>)
+        .await
+    {
+        Ok(r) => Ok(r),
+        Err(e) => Err(anyhow!("Failed getting all containers: {}", e)),
+    }
 }
 
 /// Return all containers with labels
@@ -84,16 +101,17 @@ async fn get_dockyard_containers(docker: &Docker) -> Result<Vec<ContainerSummary
 /// * `docker` - Docker client
 /// * `labels` - Labels to filter by
 ///
-async fn get_containers_by_label(
+pub(crate) async fn get_containers_by_label(
     docker: &Docker,
-    labels: Vec<&str>,
+    labels: Vec<String>,
 ) -> Result<Vec<ContainerSummaryInner>> {
+    log::info!("Getting containers for labels {}", labels.join(","));
     match docker
         .list_containers(Some(ListContainersOptions {
             all: true,
-            filters: vec![("label", labels)]
+            filters: vec![("label".to_string(), labels)]
                 .into_iter()
-                .collect::<HashMap<&str, Vec<&str>>>(),
+                .collect::<HashMap<String, Vec<String>>>(),
             ..Default::default()
         }))
         .await

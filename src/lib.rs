@@ -1,3 +1,4 @@
+#![feature(duration_zero)]
 //! [![license](https://img.shields.io/github/license/aig787/dockyard)](https://opensource.org/licenses/MIT)
 //! [![travis-ci](https://travis-ci.org/aig787/dockyard.svg?branch=master)](https://travis-ci.org/github/aig787/dockyard)
 //! [![dockerhub](https://img.shields.io/docker/v/aig787/dockyard?label=dockerhub&sort=semver)](https://hub.docker.com/r/aig787/dockyard)
@@ -81,3 +82,4 @@ pub mod cleanup;
 pub mod container;
 pub mod file;
 pub mod restore;
+pub mod watch;

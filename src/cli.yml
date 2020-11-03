@@ -8,6 +8,27 @@ args:
       help: Sets the level of verbosity
       global: true
 subcommands:
+  - watch:
+      about: Periodically back up containers
+      args:
+        - OUTPUT:
+            help: Location to write backup
+            required: true
+            index: 1
+        - output_type:
+            help: Type of output resource
+            long: output-type
+            value_name: OUTPUT_TYPE
+            possible_values: ["volume", "directory"]
+            default_value: "directory"
+        - volumes:
+            help: List of volumes to back up
+            long: volumes
+            min_values: 1
+        - cron:
+            help: Cron expression for backup interval (default every day at 00:00)
+            long: cron
+            default_value: "0 0 0 * * * *"
   - cleanup:
       about: Stop and remove all dockyarg containers
   - write:

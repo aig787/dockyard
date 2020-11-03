@@ -1,18 +1,18 @@
+use crate::backup::ContainerBackup;
+use crate::container::{handle_container_output, run_dockyard_command};
+use crate::file::decode_b64;
 use anyhow::{Context, Result};
-use std::path::Path;
-use std::fs::{File, create_dir_all};
-use flate2::read::GzDecoder;
-use tar::Archive;
-use bollard::Docker;
+use bollard::container::{Config, CreateContainerOptions};
+use bollard::image::CreateImageOptions;
 use bollard::models::{Mount, MountTypeEnum};
 use bollard::volume::CreateVolumeOptions;
-use crate::container::{run_dockyard_command, handle_container_output};
-use crate::backup::ContainerBackup;
-use bollard::container::{CreateContainerOptions, Config};
-use crate::file::decode_b64;
+use bollard::Docker;
+use flate2::read::GzDecoder;
 use futures::future::Either;
-use bollard::image::CreateImageOptions;
 use futures::TryStreamExt;
+use std::fs::{create_dir_all, File};
+use std::path::Path;
+use tar::Archive;
 
 pub fn restore_directory(archive: &str, output: &str) -> Result<()> {
     log::info!("Restoring {} to {}", archive, output);
@@ -25,7 +25,12 @@ pub fn restore_directory(archive: &str, output: &str) -> Result<()> {
     Ok(())
 }
 
-pub async fn restore_directory_from_mount(docker: &Docker, archive: String, backup_mount: Mount, directory: String) -> Result<()> {
+pub async fn restore_directory_from_mount(
+    docker: &Docker,
+    archive: String,
+    backup_mount: Mount,
+    directory: String,
+) -> Result<()> {
     log::info!("Restoring directory {} from {}", directory, archive);
     let log_prefix = format!("restore directory {}", directory);
     let mounted_backup = format!("{}/{}", &backup_mount.target.as_ref().unwrap(), archive);
@@ -43,14 +48,25 @@ pub async fn restore_directory_from_mount(docker: &Docker, archive: String, back
     handle_container_output(exit_code, &log_prefix, &logs)
 }
 
-pub async fn restore_volume(docker: &Docker, archive: String, backup_mount: Mount, volume_mount: Mount) -> Result<()> {
-    log::info!("Restoring volume {} from {}", volume_mount.source.as_ref().unwrap(), archive);
-    docker.create_volume(CreateVolumeOptions {
-        name: volume_mount.source.as_ref().unwrap().to_string(),
-        driver: "local".to_string(),
-        driver_opts: Default::default(),
-        labels: Default::default(),
-    }).await?;
+pub async fn restore_volume(
+    docker: &Docker,
+    archive: String,
+    backup_mount: Mount,
+    volume_mount: Mount,
+) -> Result<()> {
+    log::info!(
+        "Restoring volume {} from {}",
+        volume_mount.source.as_ref().unwrap(),
+        archive
+    );
+    docker
+        .create_volume(CreateVolumeOptions {
+            name: volume_mount.source.as_ref().unwrap().to_string(),
+            driver: "local".to_string(),
+            driver_opts: Default::default(),
+            labels: Default::default(),
+        })
+        .await?;
     let log_prefix = format!("restore volume {}", volume_mount.source.as_ref().unwrap());
     let mounted_backup = format!("{}/{}", &backup_mount.target.as_ref().unwrap(), archive);
     let volume_dir = volume_mount.target.as_ref().unwrap().to_string();
@@ -60,14 +76,20 @@ pub async fn restore_volume(docker: &Docker, archive: String, backup_mount: Moun
     handle_container_output(exit_code, &log_prefix, &logs)
 }
 
-pub async fn restore_container(docker: &Docker, backup_file: &str, container: &str, backup_mount: Mount) -> Result<()> {
+pub async fn restore_container(
+    docker: &Docker,
+    backup_file: &str,
+    container: &str,
+    backup_mount: Mount,
+) -> Result<()> {
     log::info!("Restoring container {} from {}", container, backup_file);
     let mounted_backup = format!("/backup/{}", backup_file);
     let (exit_code, logs) = run_dockyard_command(
         docker,
         Some(vec![backup_mount.clone()]),
         vec!["cat", "--encoded", "-f", &mounted_backup],
-    ).await?;
+    )
+    .await?;
     if logs.is_empty() {
         return Err(anyhow!("Found empty file"));
     }
@@ -80,7 +102,12 @@ pub async fn restore_container(docker: &Docker, backup_file: &str, container: &s
         let archive_path = mb.path.to_str().unwrap().to_string();
         if mb.mount.typ.unwrap() == "bind" {
             let directory = mb.mount.source.unwrap();
-            let f = restore_directory_from_mount(docker, archive_path, backup_mount.clone(), directory.clone());
+            let f = restore_directory_from_mount(
+                docker,
+                archive_path,
+                backup_mount.clone(),
+                directory.clone(),
+            );
             mount_restore_processes.push((directory, Either::Left(f)));
         } else {
             let volume = mb.mount.name.unwrap();
@@ -95,12 +122,21 @@ pub async fn restore_container(docker: &Docker, backup_file: &str, container: &s
         }
     }
     for (name, res) in mount_restore_processes {
-        res.await.with_context(|| format!("Failed to restore mount {}", &name))?;
+        res.await
+            .with_context(|| format!("Failed to restore mount {}", &name))?;
         log::info!("Successfully restored mount {}", &name)
     }
 
     let image = container_backup.container_config.image.unwrap();
-    docker.create_image(Some(CreateImageOptions { from_image: image.as_str(), ..Default::default() }), None, None)
+    docker
+        .create_image(
+            Some(CreateImageOptions {
+                from_image: image.as_str(),
+                ..Default::default()
+            }),
+            None,
+            None,
+        )
         .try_collect::<Vec<_>>()
         .await?;
 
@@ -134,31 +170,33 @@ pub async fn restore_container(docker: &Docker, backup_file: &str, container: &s
         ..Default::default()
     };
 
-    docker.create_container(Some(CreateContainerOptions {
-        name: container
-    }), container_config).await?;
+    docker
+        .create_container(
+            Some(CreateContainerOptions { name: container }),
+            container_config,
+        )
+        .await?;
     log::info!("Successfully restored container {}", container);
     Ok(())
 }
 
-
 #[cfg(test)]
 mod test {
     use super::*;
-    use simple_logger::SimpleLogger;
-    use log::LevelFilter;
-    use tempfile::TempDir;
-    use std::fs::{create_dir, read_to_string, read_dir};
-    use std::io::Write;
+    use crate::backup::MountBackup;
+    use crate::container::{get_backup_directory_mount, run_docker_command};
+    use bollard::container::{InspectContainerOptions, RemoveContainerOptions};
+    use bollard::models::{ContainerConfig, HostConfig, MountPoint};
     use flate2::write::GzEncoder;
     use flate2::Compression;
+    use log::LevelFilter;
+    use simple_logger::SimpleLogger;
+    use std::fs::{create_dir, read_dir, read_to_string};
+    use std::io::Write;
     use std::path::PathBuf;
+    use tempfile::TempDir;
     use tokio::runtime::Runtime;
-    use bollard::models::{MountPoint, ContainerConfig, HostConfig};
-    use crate::backup::MountBackup;
-    use bollard::container::{InspectContainerOptions, RemoveContainerOptions};
     use uuid::Uuid;
-    use crate::container::{get_backup_directory_mount, run_docker_command};
 
     #[test]
     fn restore_directory_test() {
@@ -197,14 +235,25 @@ mod test {
             };
             restore_volume(
                 &docker,
-                archive_path.strip_prefix(working_dir.path()).unwrap().to_str().unwrap().to_string(),
+                archive_path
+                    .strip_prefix(working_dir.path())
+                    .unwrap()
+                    .to_str()
+                    .unwrap()
+                    .to_string(),
                 Mount {
                     target: Some("/backup".to_string()),
                     source: Some(working_dir.path().to_str().unwrap().to_string()),
                     typ: Some(MountTypeEnum::BIND),
                     ..Default::default()
-                }, volume_mount.clone()).await.unwrap();
-            copy_from_volume(&docker, &volume_name, volume_contents.to_str().unwrap()).await.unwrap();
+                },
+                volume_mount.clone(),
+            )
+            .await
+            .unwrap();
+            copy_from_volume(&docker, &volume_name, volume_contents.to_str().unwrap())
+                .await
+                .unwrap();
         });
 
         let mut count = 0;
@@ -212,7 +261,10 @@ mod test {
             let entry = maybe_entry.unwrap();
             let num = entry.file_name();
             count += 1;
-            assert_eq!(read_to_string(entry.path()).unwrap(), format!("Restore test data {}", num.to_str().unwrap()));
+            assert_eq!(
+                read_to_string(entry.path()).unwrap(),
+                format!("Restore test data {}", num.to_str().unwrap())
+            );
         }
         assert_eq!(count, 100);
     }
@@ -233,7 +285,14 @@ mod test {
         let driver = Some("local".to_string());
         let mount_backup = MountBackup {
             path: PathBuf::from(archive_path.strip_prefix(&working_dir).unwrap()),
-            mount: MountPoint { name: name.clone(), typ: typ.clone(), source: source.clone(), destination: destination.clone(), driver: driver.clone(), ..Default::default() },
+            mount: MountPoint {
+                name: name.clone(),
+                typ: typ.clone(),
+                source: source.clone(),
+                destination: destination.clone(),
+                driver: driver.clone(),
+                ..Default::default()
+            },
         };
         let mount = Mount {
             target: destination.clone(),
@@ -244,33 +303,66 @@ mod test {
         let container_backup = ContainerBackup {
             name: container_name.clone(),
             container_config: ContainerConfig {
-                cmd: Some(vec!["tail".to_string(), "-f".to_string(), "/dev/null".to_string()]),
+                cmd: Some(vec![
+                    "tail".to_string(),
+                    "-f".to_string(),
+                    "/dev/null".to_string(),
+                ]),
                 image: Some("nginx:latest".to_string()),
                 entrypoint: None,
                 ..Default::default()
             },
-            host_config: HostConfig { mounts: Some(vec![mount]), ..Default::default() },
+            host_config: HostConfig {
+                mounts: Some(vec![mount]),
+                ..Default::default()
+            },
             mounts: vec![mount_backup],
         };
         let backup_path = working_dir.path().join(backup_name);
-        File::create(&backup_path).unwrap().write_all(serde_json::to_string(&container_backup).unwrap().as_bytes()).unwrap();
+        File::create(&backup_path)
+            .unwrap()
+            .write_all(serde_json::to_string(&container_backup).unwrap().as_bytes())
+            .unwrap();
 
         let mut rt = Runtime::new().unwrap();
         let docker = Docker::connect_with_unix_defaults().unwrap();
         let inspection = rt.block_on(async {
-            restore_container(&docker, backup_name, container_name.as_str(), get_backup_directory_mount(working_dir.path().to_str().unwrap().to_string())).await.unwrap();
-            let inspection = &docker.inspect_container(&container_name, None::<InspectContainerOptions>).await.unwrap();
+            restore_container(
+                &docker,
+                backup_name,
+                container_name.as_str(),
+                get_backup_directory_mount(working_dir.path().to_str().unwrap().to_string()),
+            )
+            .await
+            .unwrap();
+            let inspection = &docker
+                .inspect_container(&container_name, None::<InspectContainerOptions>)
+                .await
+                .unwrap();
             inspection.clone()
         });
-        assert_eq!(inspection.name.as_ref().unwrap(), &format!("/{}", container_backup.name));
+        assert_eq!(
+            inspection.name.as_ref().unwrap(),
+            &format!("/{}", container_backup.name)
+        );
         let inspection_mounts = inspection.mounts.as_ref().unwrap();
         assert_eq!(inspection_mounts.len(), 1);
         let inspection_mount = inspection_mounts.first().unwrap();
         assert_eq!(inspection_mount.typ.as_ref().unwrap(), &typ.unwrap());
-        assert!(inspection_mount.source.as_ref().unwrap().ends_with(&source.unwrap()));
-        assert_eq!(inspection_mount.destination.as_ref().unwrap(), &destination.unwrap());
+        assert!(inspection_mount
+            .source
+            .as_ref()
+            .unwrap()
+            .ends_with(&source.unwrap()));
+        assert_eq!(
+            inspection_mount.destination.as_ref().unwrap(),
+            &destination.unwrap()
+        );
         rt.block_on(async {
-            docker.remove_container(&container_name, None::<RemoveContainerOptions>).await.unwrap();
+            docker
+                .remove_container(&container_name, None::<RemoveContainerOptions>)
+                .await
+                .unwrap();
         });
     }
 
@@ -280,7 +372,8 @@ mod test {
 
         for i in 0..100 {
             let mut f = File::create(Path::join(&input, i.to_string())).unwrap();
-            f.write_all(format!("Restore test data {}", i).as_bytes()).unwrap();
+            f.write_all(format!("Restore test data {}", i).as_bytes())
+                .unwrap();
         }
 
         let archive_path = Path::join(working_dir.path(), "archive.tgz");
@@ -298,17 +391,26 @@ mod test {
                 target: Some("/source".to_string()),
                 typ: Some(MountTypeEnum::VOLUME),
                 ..Default::default()
-            }, Mount {
+            },
+            Mount {
                 source: Some(destination.to_string()),
                 target: Some("/destination".to_string()),
                 typ: Some(MountTypeEnum::BIND),
                 ..Default::default()
-            }
+            },
         ];
         create_dir_all(Path::new(destination)).unwrap();
         let cmd = vec!["/bin/cp", "-r", "/source/.", "/destination"];
         let container_name = format!("copy_from_volume_{}", Uuid::new_v4());
-        let (exit_code, logs) = run_docker_command(docker, &container_name, "alpine:latest", Some(mounts), cmd, None).await?;
+        let (exit_code, logs) = run_docker_command(
+            docker,
+            &container_name,
+            "alpine:latest",
+            Some(mounts),
+            cmd,
+            None,
+        )
+        .await?;
         handle_container_output(exit_code, "copy from volume", &logs)
     }
 }

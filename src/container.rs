@@ -20,7 +20,7 @@ use std::sync::atomic::Ordering::Relaxed;
 use tempfile::TempDir;
 use uuid::Uuid;
 
-pub static PID_LABEL: &str = "com.aig787.dockyard.pid";
+pub static PID_LABEL: &str = "com.github.aig787.dockyard.pid";
 static COMMAND_VERBOSITY: AtomicU8 = AtomicU8::new(0);
 
 pub fn set_command_verbosity(verbosity: u8) {
@@ -159,7 +159,7 @@ pub async fn run_dockyard_command(
     let image = get_or_build_image(&docker).await?;
     let container_name = format!("dockyard_{}", Uuid::new_v4());
     let pid = process::id().to_string();
-    let labels = vec![("com.github.aig787.dockyard.pid", pid.as_str())];
+    let labels = vec![(PID_LABEL, pid.as_str())];
     run_docker_command(docker, &container_name, &image, mounts, cmd, Some(labels)).await
 }
 
@@ -180,8 +180,9 @@ async fn get_or_build_image(docker: &Docker) -> Result<String> {
             let rev = output[0];
             let git_root = output[1];
             let image = format!("dockyard:{}", rev);
+            log::debug!("Running in git repo, using version {}", &image);
             if docker.inspect_image(&image).await.is_err() {
-                log::warn!("{} not found, building...", &image);
+                log::info!("{} not found, building...", &image);
                 let context = build_context(git_root)?;
 
                 let output = docker.build_image(
