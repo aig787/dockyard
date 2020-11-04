@@ -20,5 +20,6 @@ LABEL com.github.aig787.dockyard.disabled=true
 ENV OUTPUT_TYPE="directory"
 ENV OUTPUT_LOCATION="/tmp"
 ENV CRON="0 0 0 * * * *"
+ENV ARGS=""
 COPY --from=application /opt/dockyard/target/release/dockyard /usr/local/bin/dockyard
-CMD /usr/local/bin/dockyard watch --cron "${CRON}" --output-type ${OUTPUT_TYPE} ${OUTPUT_LOCATION}
+CMD /usr/local/bin/dockyard watch --cron "${CRON}" --output-type ${OUTPUT_TYPE} ${OUTPUT_LOCATION} ${ARGS}
