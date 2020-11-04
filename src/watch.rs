@@ -56,6 +56,7 @@ async fn backup_all_containers(
     exclude_volumes: &HashSet<String>,
 ) -> Result<()> {
     log::info!("Excluding containers: {:?}", exclude_containers);
+    log::info!("Excluding volumes: {:?}", exclude_volumes);
     let containers = get_all_containers(docker)
         .await?
         .into_iter()

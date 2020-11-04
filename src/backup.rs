@@ -267,7 +267,15 @@ async fn filter_mount(
                     log::info!("Ignoring network volume {}", volume_name);
                     Ok(false)
                 }
-                _ => Ok(!exclude_volumes.contains(volume_name)),
+                _ => {
+                    if exclude_volumes.contains(volume_name) {
+                        log::info!("Ignoring excluded volume {}", volume_name);
+                        Ok(false)
+                    } else {
+                        log::info!("Including volume {}", volume_name);
+                        Ok(true)
+                    }
+                }
             }
         }
         Some("bind") => Ok(true),
