@@ -278,7 +278,16 @@ async fn filter_mount(
                 }
             }
         }
-        Some("bind") => Ok(true),
+        Some("bind") => {
+            let source = mount.source.as_ref().unwrap();
+            if exclude_volumes.contains(source) {
+                log::info!("Ignoring excluded directory {}", source);
+                Ok(false)
+            } else {
+                log::info!("Including directory {}", source);
+                Ok(true)
+            }
+        }
         Some(t) => {
             log::info!("Ignoring mount with type {}", t);
             Ok(false)
