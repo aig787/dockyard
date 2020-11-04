@@ -60,7 +60,7 @@ async fn stop_and_remove_containers(
                 .kill_container(&id, None::<KillContainerOptions<String>>)
                 .await
             {
-                log::warn!("Failed to kill container {}: {}", &name, e)
+                log::trace!("Failed to kill container {}: {}", &name, e)
             }
         }
         log::info!("Removing container {}", &name);
@@ -136,7 +136,7 @@ pub(crate) async fn get_containers_by_label(
 #[cfg(test)]
 mod test {
     use super::*;
-    use crate::container::download_image;
+    use crate::container::check_image;
     use bollard::container::{Config, CreateContainerOptions};
     use log::LevelFilter;
     use simple_logger::SimpleLogger;
@@ -153,7 +153,7 @@ mod test {
         let pid: u32 = rand::random();
         // create container with label
         let id = rt.block_on(async {
-            download_image(&docker, "hello-world:linux").await.unwrap();
+            check_image(&docker, "hello-world:linux").await.unwrap();
             create_hello_container(&docker, pid).await.unwrap()
         });
 
@@ -178,7 +178,7 @@ mod test {
         let docker = Docker::connect_with_unix_defaults().unwrap();
 
         let ids = rt.block_on(async {
-            download_image(&docker, "hello-world:linux").await.unwrap();
+            check_image(&docker, "hello-world:linux").await.unwrap();
             let id1 = create_hello_container(&docker, rand::random())
                 .await
                 .unwrap();
@@ -213,9 +213,12 @@ mod test {
                 Config {
                     image: Some("hello-world:linux"),
                     labels: Some(
-                        vec![(PID_LABEL, pid.to_string().as_str())]
-                            .into_iter()
-                            .collect::<HashMap<&str, &str>>(),
+                        vec![
+                            (PID_LABEL, pid.to_string().as_str()),
+                            (DOCKYARD_COMMAND_LABEL, "true"),
+                        ]
+                        .into_iter()
+                        .collect::<HashMap<&str, &str>>(),
                     ),
                     ..Default::default()
                 },

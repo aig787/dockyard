@@ -41,7 +41,17 @@ fn get_verbosity_arg() -> String {
     }
 }
 
-pub async fn download_image(
+pub async fn check_image(
+    docker: &Docker,
+    image: &str,
+) -> Result<Option<Vec<CreateImageInfo>>, bollard::errors::Error> {
+    match docker.inspect_image(image).await {
+        Ok(_) => Ok(None),
+        Err(_) => download_image(docker, image).await.map(|r| Some(r)),
+    }
+}
+
+async fn download_image(
     docker: &Docker,
     image: &str,
 ) -> Result<Vec<CreateImageInfo>, bollard::errors::Error> {
@@ -67,9 +77,7 @@ pub(crate) async fn run_docker_command(
     cmd: Vec<&str>,
     labels: Option<Vec<(&str, &str)>>,
 ) -> Result<(i64, Vec<LogOutput>)> {
-    if docker.inspect_image(image).await.is_err() {
-        download_image(docker, image).await?;
-    }
+    check_image(docker, image).await?;
     log::debug!(
         "Running '{}' in container {}",
         cmd.join(" "),

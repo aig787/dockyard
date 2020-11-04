@@ -1,15 +1,13 @@
 use crate::backup::ContainerBackup;
-use crate::container::{handle_container_output, run_dockyard_command};
+use crate::container::{check_image, handle_container_output, run_dockyard_command};
 use crate::file::decode_b64;
 use anyhow::{Context, Result};
 use bollard::container::{Config, CreateContainerOptions};
-use bollard::image::CreateImageOptions;
 use bollard::models::{Mount, MountTypeEnum};
 use bollard::volume::CreateVolumeOptions;
 use bollard::Docker;
 use flate2::read::GzDecoder;
 use futures::future::Either;
-use futures::TryStreamExt;
 use std::fs::{create_dir_all, File};
 use std::path::Path;
 use tar::Archive;
@@ -128,17 +126,7 @@ pub async fn restore_container(
     }
 
     let image = container_backup.container_config.image.unwrap();
-    docker
-        .create_image(
-            Some(CreateImageOptions {
-                from_image: image.as_str(),
-                ..Default::default()
-            }),
-            None,
-            None,
-        )
-        .try_collect::<Vec<_>>()
-        .await?;
+    check_image(docker, &image).await?;
 
     let container_config = Config {
         hostname: container_backup.container_config.hostname,

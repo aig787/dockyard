@@ -25,6 +25,16 @@ subcommands:
             help: Cron expression for backup interval (default every day at 00:00)
             long: cron
             default_value: "0 0 0 * * * *"
+        - exclude_volumes:
+            help: Names of volumes to exclude from backup
+            long: exclude-volumes
+            multiple: true
+            value_name: EXCLUDE_VOLUMES
+        - exclude_containers:
+            help: Names of containers to exclude from backup
+            long: exclude-containers
+            multiple: true
+            value_name: EXCLUDE_VOLUMES
   - cleanup:
       about: Stop and remove all dockyarg containers
   - write:

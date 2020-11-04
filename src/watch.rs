@@ -5,12 +5,19 @@ use bollard::models::{ContainerSummaryInner, Mount};
 use bollard::Docker;
 use chrono::Utc;
 use cron::Schedule;
+use std::collections::HashSet;
 use std::str::FromStr;
 use tokio::time;
 
 pub const DISABLED_LABEL: &str = "com.github.aig787.dockyard.disabled";
 
-pub async fn backup_on_interval(docker: &Docker, cron: &str, backup_mount: Mount) -> Result<()> {
+pub async fn backup_on_interval(
+    docker: &Docker,
+    cron: &str,
+    backup_mount: Mount,
+    exclude_containers: Option<Vec<String>>,
+    exclude_volumes: Option<Vec<String>>,
+) -> Result<()> {
     let schedule = match Schedule::from_str(cron) {
         Ok(s) => s,
         Err(e) => return Err(anyhow!("Failed to parse cron expression {}: {}", cron, e)),
@@ -33,7 +40,13 @@ pub async fn backup_on_interval(docker: &Docker, cron: &str, backup_mount: Mount
         log::debug!("Sleeping for {} millis", &duration.as_millis());
         tokio::time::delay_for(duration).await;
 
-        let res = backup_all_containers(docker, &backup_mount).await;
+        let res = backup_all_containers(
+            docker,
+            &backup_mount,
+            exclude_containers.clone(),
+            exclude_volumes.clone(),
+        )
+        .await;
         if let Err(e) = res {
             return Err(e);
         }
@@ -41,18 +54,42 @@ pub async fn backup_on_interval(docker: &Docker, cron: &str, backup_mount: Mount
     Ok(())
 }
 
-async fn backup_all_containers(docker: &Docker, backup_mount: &Mount) -> Result<()> {
+async fn backup_all_containers(
+    docker: &Docker,
+    backup_mount: &Mount,
+    exclude_containers: Option<Vec<String>>,
+    exclude_volumes: Option<Vec<String>>,
+) -> Result<()> {
+    let exclude_containers = exclude_containers
+        .unwrap_or(vec![])
+        .into_iter()
+        .map(|n| n.replace("/", ""))
+        .collect::<HashSet<_>>();
+    log::info!("Excluding containers: {:?}", exclude_containers);
     let containers = get_all_containers(docker)
         .await?
         .into_iter()
-        .filter(|container| should_back_up(container))
+        .filter(|container| {
+            should_back_up(container)
+                && container
+                    .names
+                    .as_ref()
+                    .unwrap()
+                    .into_iter()
+                    .all(|n| !exclude_containers.contains(&n.replace("/", "")))
+        })
         .collect::<Vec<_>>();
     log::info!("Found {} running containers", containers.len());
     for container in containers {
         let container_name = container.names.unwrap();
         let container_name = container_name.first().unwrap().replace("/", "");
-        let backup_location =
-            backup_container(&docker, &container_name, backup_mount.clone(), None).await?;
+        let backup_location = backup_container(
+            &docker,
+            &container_name,
+            backup_mount.clone(),
+            exclude_volumes.clone(),
+        )
+        .await?;
         log::info!(
             "Successfully backed up {} to {}",
             container_name,

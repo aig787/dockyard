@@ -162,9 +162,15 @@ async fn run_watch(docker: &Docker, args: &ArgMatches<'_>) -> Result<i32> {
     } else {
         get_backup_volume_mount(output.to_string())
     };
-    backup_on_interval(&docker, cron, backup_mount)
-        .await
-        .map(|_| 0)
+    backup_on_interval(
+        &docker,
+        cron,
+        backup_mount,
+        args.values_of_lossy("exclude_containers"),
+        args.values_of_lossy("exclude_volumes"),
+    )
+    .await
+    .map(|_| 0)
 }
 
 async fn run_backup(docker: &Docker, subcommand: &ArgMatches<'_>) -> Result<i32> {
@@ -204,7 +210,7 @@ async fn run_backup(docker: &Docker, subcommand: &ArgMatches<'_>) -> Result<i32>
                     &docker,
                     resource_name,
                     backup_mount,
-                    subargs.values_of_lossy("volumes"),
+                    subargs.values_of_lossy("exclude_volumes"),
                 )
                 .await
                 .map(|p| {

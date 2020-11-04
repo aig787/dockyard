@@ -12,7 +12,7 @@ use chrono::Utc;
 use flate2::write::GzEncoder;
 use flate2::Compression;
 use futures::future::*;
-use std::collections::HashMap;
+use std::collections::HashSet;
 
 /// Backup of volume/directory contents and mount info
 #[derive(Serialize, Deserialize, Debug)]
@@ -198,7 +198,7 @@ pub async fn backup_container(
     docker: &Docker,
     container_name: &str,
     backup_mount: Mount,
-    volumes: Option<Vec<String>>,
+    exclude_volumes: Option<Vec<String>>,
 ) -> Result<PathBuf> {
     let output = Path::new("dockyard/containers").join(container_name);
     log::info!(
@@ -206,7 +206,7 @@ pub async fn backup_container(
         container_name,
         output.display()
     );
-    let (info, mounts) = get_container_info(docker, container_name, volumes).await?;
+    let (info, mounts) = get_container_info(docker, container_name, exclude_volumes).await?;
     let mut mount_backup_processes = vec![];
     for mp in mounts {
         if mp.typ.as_ref().unwrap() == "bind" {
@@ -287,26 +287,19 @@ async fn filter_mount(docker: &Docker, mount: &MountPoint) -> Result<bool> {
 ///
 fn validate_mounts(
     container_info: &ContainerInspectResponse,
-    volumes: Vec<String>,
+    exclude_volumes: HashSet<String>,
 ) -> Result<Vec<MountPoint>> {
-    let mounts = container_info
+    Ok(container_info
         .mounts
         .as_ref()
         .unwrap()
         .iter()
-        .map(|m| match &m.typ.as_deref() {
-            Some("bind") => (m.destination.as_ref().unwrap().to_string(), m),
-            _ => (m.name.as_ref().unwrap().to_string(), m),
+        .filter(|mount| match mount.typ.as_deref() {
+            Some("bind") => !exclude_volumes.contains(mount.destination.as_ref().unwrap().as_str()),
+            _ => !exclude_volumes.contains(mount.name.as_ref().unwrap().as_str()),
         })
-        .collect::<HashMap<String, &MountPoint>>();
-    let mut mountpoints = vec![];
-    for volume in volumes {
-        match mounts.get(&volume) {
-            Some(m) => mountpoints.push((*m).clone()),
-            None => return Err(anyhow!("No mount {} found", volume)),
-        }
-    }
-    Ok(mountpoints)
+        .map(|m| m.clone())
+        .collect::<Vec<_>>())
 }
 
 /// Return Container Inspection and mounts for container
@@ -320,13 +313,13 @@ fn validate_mounts(
 async fn get_container_info(
     docker: &Docker,
     container_name: &str,
-    volumes: Option<Vec<String>>,
+    exclude_volumes: Option<Vec<String>>,
 ) -> Result<(ContainerInspectResponse, Vec<MountPoint>)> {
     let container_info = docker
         .inspect_container(&container_name, None::<InspectContainerOptions>)
         .await?;
-    let mounts = match volumes {
-        Some(v) => validate_mounts(&container_info, v)?,
+    let mounts = match exclude_volumes {
+        Some(v) => validate_mounts(&container_info, v.into_iter().collect::<HashSet<_>>())?,
         None => {
             let mut filtered_mounts = vec![];
             for mp in container_info.mounts.as_ref().unwrap() {
@@ -418,7 +411,7 @@ mod test {
     use tempfile::TempDir;
 
     use super::*;
-    use crate::container::{download_image, get_backup_directory_mount};
+    use crate::container::{check_image, get_backup_directory_mount};
     use bollard::container::{
         Config, CreateContainerOptions, KillContainerOptions, RemoveContainerOptions,
         StartContainerOptions,
@@ -615,7 +608,7 @@ mod test {
         mounts: Vec<Mount>,
     ) -> Result<()> {
         let image = "alpine:latest";
-        download_image(docker, image).await.unwrap();
+        check_image(docker, image).await.unwrap();
         docker
             .create_container(
                 Some(CreateContainerOptions { name }),
