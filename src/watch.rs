@@ -15,8 +15,8 @@ pub async fn backup_on_interval(
     docker: &Docker,
     cron: &str,
     backup_mount: Mount,
-    exclude_containers: Option<Vec<String>>,
-    exclude_volumes: Option<Vec<String>>,
+    exclude_containers: &HashSet<String>,
+    exclude_volumes: &HashSet<String>,
 ) -> Result<()> {
     let schedule = match Schedule::from_str(cron) {
         Ok(s) => s,
@@ -40,13 +40,8 @@ pub async fn backup_on_interval(
         log::debug!("Sleeping for {} millis", &duration.as_millis());
         tokio::time::delay_for(duration).await;
 
-        let res = backup_all_containers(
-            docker,
-            &backup_mount,
-            exclude_containers.clone(),
-            exclude_volumes.clone(),
-        )
-        .await;
+        let res =
+            backup_all_containers(docker, &backup_mount, exclude_containers, exclude_volumes).await;
         if let Err(e) = res {
             return Err(e);
         }
@@ -57,14 +52,9 @@ pub async fn backup_on_interval(
 async fn backup_all_containers(
     docker: &Docker,
     backup_mount: &Mount,
-    exclude_containers: Option<Vec<String>>,
-    exclude_volumes: Option<Vec<String>>,
+    exclude_containers: &HashSet<String>,
+    exclude_volumes: &HashSet<String>,
 ) -> Result<()> {
-    let exclude_containers = exclude_containers
-        .unwrap_or(vec![])
-        .into_iter()
-        .map(|n| n.replace("/", ""))
-        .collect::<HashSet<_>>();
     log::info!("Excluding containers: {:?}", exclude_containers);
     let containers = get_all_containers(docker)
         .await?
@@ -87,7 +77,7 @@ async fn backup_all_containers(
             &docker,
             &container_name,
             backup_mount.clone(),
-            exclude_volumes.clone(),
+            exclude_volumes,
         )
         .await?;
         log::info!(

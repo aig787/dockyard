@@ -146,7 +146,7 @@ fn backup_all_container_volumes_test() {
             &client,
             &container_name,
             backup_mount.clone(),
-            None,
+            &HashSet::new(),
         )
         .await
         .unwrap();

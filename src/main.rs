@@ -20,6 +20,8 @@ use dockyard::restore::{restore_container, restore_directory, restore_volume};
 use dockyard::watch::backup_on_interval;
 use log::LevelFilter;
 use simple_logger::SimpleLogger;
+use std::collections::HashSet;
+use std::iter::FromIterator;
 
 lazy_static! {
     static ref DOCKER: Docker = Docker::connect_with_unix_defaults().unwrap();
@@ -162,12 +164,16 @@ async fn run_watch(docker: &Docker, args: &ArgMatches<'_>) -> Result<i32> {
     } else {
         get_backup_volume_mount(output.to_string())
     };
+    let exclude_containers =
+        HashSet::from_iter(args.values_of_lossy("exclude_containers").unwrap_or(vec![]));
+    let exclude_volumes =
+        HashSet::from_iter(args.values_of_lossy("exclude_volumes").unwrap_or(vec![]));
     backup_on_interval(
         &docker,
         cron,
         backup_mount,
-        args.values_of_lossy("exclude_containers"),
-        args.values_of_lossy("exclude_volumes"),
+        &exclude_containers,
+        &exclude_volumes,
     )
     .await
     .map(|_| 0)
@@ -206,21 +212,21 @@ async fn run_backup(docker: &Docker, subcommand: &ArgMatches<'_>) -> Result<i32>
                         );
                         0
                     }),
-                "container" => backup_container(
-                    &docker,
-                    resource_name,
-                    backup_mount,
-                    subargs.values_of_lossy("exclude_volumes"),
-                )
-                .await
-                .map(|p| {
-                    log::info!(
-                        "Successfully backed up container {} to {}",
-                        resource_name,
-                        p.display()
+                "container" => {
+                    let exclude_volumes: HashSet<String> = HashSet::from_iter(
+                        subargs.values_of_lossy("exclude_volumes").unwrap_or(vec![]),
                     );
-                    0
-                }),
+                    backup_container(&docker, resource_name, backup_mount, &exclude_volumes)
+                        .await
+                        .map(|p| {
+                            log::info!(
+                                "Successfully backed up container {} to {}",
+                                resource_name,
+                                p.display()
+                            );
+                            0
+                        })
+                }
                 _ => print_usage(subargs),
             }
         }

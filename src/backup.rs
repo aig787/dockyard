@@ -198,7 +198,7 @@ pub async fn backup_container(
     docker: &Docker,
     container_name: &str,
     backup_mount: Mount,
-    exclude_volumes: Option<Vec<String>>,
+    exclude_volumes: &HashSet<String>,
 ) -> Result<PathBuf> {
     let output = Path::new("dockyard/containers").join(container_name);
     log::info!(
@@ -253,7 +253,11 @@ pub async fn backup_container(
 /// * `docker` - Docker client
 /// * `mount` - Mount to inspect and filter
 ///
-async fn filter_mount(docker: &Docker, mount: &MountPoint) -> Result<bool> {
+async fn filter_mount(
+    docker: &Docker,
+    mount: &MountPoint,
+    exclude_volumes: &HashSet<String>,
+) -> Result<bool> {
     match mount.typ.as_deref() {
         Some("volume") => {
             let volume_name = mount.name.as_ref().unwrap();
@@ -263,7 +267,7 @@ async fn filter_mount(docker: &Docker, mount: &MountPoint) -> Result<bool> {
                     log::info!("Ignoring network volume {}", volume_name);
                     Ok(false)
                 }
-                _ => Ok(true),
+                _ => Ok(!exclude_volumes.contains(volume_name)),
             }
         }
         Some("bind") => Ok(true),
@@ -278,30 +282,6 @@ async fn filter_mount(docker: &Docker, mount: &MountPoint) -> Result<bool> {
     }
 }
 
-/// Assert all specified volume mounts are present
-///
-/// # Arguments
-///
-/// * `container_info` - Container inspection result
-/// * `volumes` - Specific volumes to back up
-///
-fn validate_mounts(
-    container_info: &ContainerInspectResponse,
-    exclude_volumes: HashSet<String>,
-) -> Result<Vec<MountPoint>> {
-    Ok(container_info
-        .mounts
-        .as_ref()
-        .unwrap()
-        .iter()
-        .filter(|mount| match mount.typ.as_deref() {
-            Some("bind") => !exclude_volumes.contains(mount.destination.as_ref().unwrap().as_str()),
-            _ => !exclude_volumes.contains(mount.name.as_ref().unwrap().as_str()),
-        })
-        .map(|m| m.clone())
-        .collect::<Vec<_>>())
-}
-
 /// Return Container Inspection and mounts for container
 ///
 /// # Arguments
@@ -313,24 +293,18 @@ fn validate_mounts(
 async fn get_container_info(
     docker: &Docker,
     container_name: &str,
-    exclude_volumes: Option<Vec<String>>,
+    exclude_volumes: &HashSet<String>,
 ) -> Result<(ContainerInspectResponse, Vec<MountPoint>)> {
     let container_info = docker
         .inspect_container(&container_name, None::<InspectContainerOptions>)
         .await?;
-    let mounts = match exclude_volumes {
-        Some(v) => validate_mounts(&container_info, v.into_iter().collect::<HashSet<_>>())?,
-        None => {
-            let mut filtered_mounts = vec![];
-            for mp in container_info.mounts.as_ref().unwrap() {
-                if filter_mount(docker, mp).await? {
-                    filtered_mounts.push(mp.clone())
-                }
-            }
-            filtered_mounts
+    let mut filtered_mounts = vec![];
+    for mp in container_info.mounts.as_ref().unwrap() {
+        if filter_mount(docker, mp, exclude_volumes).await? {
+            filtered_mounts.push(mp.clone())
         }
-    };
-    Ok((container_info, mounts))
+    }
+    Ok((container_info, filtered_mounts))
 }
 
 /// Await volume backups and return a MountBackup for each
@@ -556,7 +530,7 @@ mod test {
                 &docker,
                 &container_name,
                 get_backup_directory_mount(output.to_str().unwrap().to_string()),
-                None,
+                &HashSet::new(),
             ))
             .unwrap();
         let absolute = &output.join(relative_path);
