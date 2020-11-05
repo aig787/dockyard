@@ -81,3 +81,4 @@ pub mod cleanup;
 pub mod container;
 pub mod file;
 pub mod restore;
+pub mod watch;

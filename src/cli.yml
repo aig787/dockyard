@@ -8,6 +8,33 @@ args:
       help: Sets the level of verbosity
       global: true
 subcommands:
+  - watch:
+      about: Periodically back up containers
+      args:
+        - OUTPUT:
+            help: Location to write backup
+            required: true
+            index: 1
+        - output_type:
+            help: Type of output resource
+            long: output-type
+            value_name: OUTPUT_TYPE
+            possible_values: ["volume", "directory"]
+            default_value: "directory"
+        - cron:
+            help: Cron expression for backup interval (default every day at 00:00)
+            long: cron
+            default_value: "0 0 0 * * * *"
+        - exclude_volumes:
+            help: Names of volumes to exclude from backup
+            long: exclude-volumes
+            multiple: true
+            value_name: EXCLUDE_VOLUMES
+        - exclude_containers:
+            help: Names of containers to exclude from backup
+            long: exclude-containers
+            multiple: true
+            value_name: EXCLUDE_VOLUMES
   - cleanup:
       about: Stop and remove all dockyarg containers
   - write:
@@ -56,12 +83,6 @@ subcommands:
                   help: Output directory
                   required: true
                   index: 2
-              - name:
-                  help: Output archive name
-                  short: n
-                  long: name
-                  value_name: NAME
-                  required: true
         - volume:
             about: Back up Docker volume
             args:

@@ -1,10 +1,13 @@
+use crate::watch::DISABLED_LABEL;
 use anyhow::Result;
 use bollard::container::{
     Config, CreateContainerOptions, InspectContainerOptions, LogOutput, LogsOptions,
     RemoveContainerOptions, StartContainerOptions, WaitContainerOptions,
 };
 use bollard::image::{BuildImageOptions, CreateImageOptions};
-use bollard::models::{BuildInfo, CreateImageInfo, HostConfig, Mount, MountTypeEnum};
+use bollard::models::{
+    BuildInfo, ContainerStateStatusEnum, CreateImageInfo, HostConfig, Mount, MountTypeEnum,
+};
 use bollard::Docker;
 use flate2::read::GzEncoder;
 use flate2::Compression;
@@ -20,7 +23,9 @@ use std::sync::atomic::Ordering::Relaxed;
 use tempfile::TempDir;
 use uuid::Uuid;
 
-pub static PID_LABEL: &str = "com.aig787.dockyard.pid";
+pub static PID_LABEL: &str = "com.github.aig787.dockyard.pid";
+pub static DOCKYARD_COMMAND_LABEL: &str = "com.github.aig787.dockyard.command";
+
 static COMMAND_VERBOSITY: AtomicU8 = AtomicU8::new(0);
 
 pub fn set_command_verbosity(verbosity: u8) {
@@ -36,7 +41,17 @@ fn get_verbosity_arg() -> String {
     }
 }
 
-pub(crate) async fn download_image(
+pub async fn check_image(
+    docker: &Docker,
+    image: &str,
+) -> Result<Option<Vec<CreateImageInfo>>, bollard::errors::Error> {
+    match docker.inspect_image(image).await {
+        Ok(_) => Ok(None),
+        Err(_) => download_image(docker, image).await.map(|r| Some(r)),
+    }
+}
+
+async fn download_image(
     docker: &Docker,
     image: &str,
 ) -> Result<Vec<CreateImageInfo>, bollard::errors::Error> {
@@ -62,9 +77,7 @@ pub(crate) async fn run_docker_command(
     cmd: Vec<&str>,
     labels: Option<Vec<(&str, &str)>>,
 ) -> Result<(i64, Vec<LogOutput>)> {
-    if docker.inspect_image(image).await.is_err() {
-        download_image(docker, image).await?;
-    }
+    check_image(docker, image).await?;
     log::debug!(
         "Running '{}' in container {}",
         cmd.join(" "),
@@ -101,25 +114,43 @@ pub(crate) async fn run_docker_command(
         .wait_container(&container_name, None::<WaitContainerOptions<String>>)
         .try_collect::<Vec<_>>()
         .await?;
-    let logs = docker
-        .logs(
-            &container_name,
-            Some(LogsOptions {
-                follow: true,
-                stdout: true,
-                stderr: true,
-                timestamps: false,
-                tail: "all".to_string(),
-                ..Default::default()
-            }),
-        )
-        .try_collect::<Vec<_>>()
-        .await?;
-
-    // Inspect to get exit code
     let inspection = docker
         .inspect_container(&container_name, None::<InspectContainerOptions>)
         .await?;
+    let logs = match inspection.state.as_ref().and_then(|s| s.status) {
+        Some(ContainerStateStatusEnum::DEAD) | Some(ContainerStateStatusEnum::REMOVING) => {
+            log::trace!("Not pulling logs from dead or removing container");
+            vec![]
+        }
+        _ => {
+            let container_logs = docker
+                .logs(
+                    &container_name,
+                    Some(LogsOptions {
+                        follow: true,
+                        stdout: true,
+                        stderr: true,
+                        timestamps: false,
+                        tail: "all".to_string(),
+                        ..Default::default()
+                    }),
+                )
+                .try_collect::<Vec<_>>()
+                .await;
+            match container_logs {
+                Ok(l) => l,
+                Err(e) => {
+                    log::warn!(
+                        "Error retrieving logs from container {}: {}",
+                        &container_name,
+                        e
+                    );
+                    vec![]
+                }
+            }
+        }
+    };
+
     log::trace!("Removing container {}", &container_name);
     docker
         .remove_container(
@@ -159,7 +190,7 @@ pub async fn run_dockyard_command(
     let image = get_or_build_image(&docker).await?;
     let container_name = format!("dockyard_{}", Uuid::new_v4());
     let pid = process::id().to_string();
-    let labels = vec![("com.github.aig787.dockyard.pid", pid.as_str())];
+    let labels = vec![(PID_LABEL, pid.as_str()), (DISABLED_LABEL, "true")];
     run_docker_command(docker, &container_name, &image, mounts, cmd, Some(labels)).await
 }
 
@@ -180,8 +211,9 @@ async fn get_or_build_image(docker: &Docker) -> Result<String> {
             let rev = output[0];
             let git_root = output[1];
             let image = format!("dockyard:{}", rev);
+            log::debug!("Running in git repo, using version {}", &image);
             if docker.inspect_image(&image).await.is_err() {
-                log::warn!("{} not found, building...", &image);
+                log::info!("{} not found, building...", &image);
                 let context = build_context(git_root)?;
 
                 let output = docker.build_image(

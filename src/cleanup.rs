@@ -1,7 +1,7 @@
-use crate::container::PID_LABEL;
+use crate::container::{DOCKYARD_COMMAND_LABEL, PID_LABEL};
 use anyhow::Result;
 use bollard::container::{KillContainerOptions, ListContainersOptions, RemoveContainerOptions};
-use bollard::models::ContainerSummaryInner;
+use bollard::models::{ContainerStateStatusEnum, ContainerSummaryInner};
 use bollard::Docker;
 use std::collections::HashMap;
 use std::process;
@@ -13,7 +13,9 @@ use std::process;
 /// * `docker` - Docker client
 ///
 pub async fn cleanup_dockyard_containers(docker: &Docker) -> Result<()> {
-    stop_and_remove_containers(docker, get_dockyard_containers(docker).await?).await
+    let containers = get_dockyard_containers(docker).await?;
+    log::info!("Removing {} dockyard containers", containers.len());
+    stop_and_remove_containers(docker, containers).await
 }
 
 /// Stop and remove all child containers
@@ -23,7 +25,14 @@ pub async fn cleanup_dockyard_containers(docker: &Docker) -> Result<()> {
 /// * `docker` - Docker client
 ///
 pub async fn cleanup_child_containers(docker: &Docker) -> Result<()> {
-    stop_and_remove_containers(docker, get_containers_by_pid(docker, process::id()).await?).await
+    let pid = process::id();
+    let containers = get_containers_by_pid(docker, pid).await?;
+    log::info!(
+        "Removing {} child containers for PID {}",
+        containers.len(),
+        pid
+    );
+    stop_and_remove_containers(docker, containers).await
 }
 
 /// Stop and remove specified containers
@@ -41,12 +50,18 @@ async fn stop_and_remove_containers(
         let id = container.id.unwrap();
         let names = container.names.unwrap();
         let name = names.first().unwrap();
-        let state = container.state.unwrap().to_lowercase();
-        if state == "running" {
+        let state = container.state.unwrap();
+        log::info!("Container {} has state {}", &name, &state);
+        if state == ContainerStateStatusEnum::RUNNING.to_string()
+            || state == ContainerStateStatusEnum::CREATED.to_string()
+        {
             log::info!("Killing container {}", &name);
-            docker
+            if let Err(e) = docker
                 .kill_container(&id, None::<KillContainerOptions<String>>)
-                .await?;
+                .await
+            {
+                log::trace!("Failed to kill container {}: {}", &name, e)
+            }
         }
         log::info!("Removing container {}", &name);
         docker
@@ -64,7 +79,7 @@ async fn stop_and_remove_containers(
 /// * `pid` - PID of dockyard process
 ///
 async fn get_containers_by_pid(docker: &Docker, pid: u32) -> Result<Vec<ContainerSummaryInner>> {
-    get_containers_by_label(docker, vec![format!("{}={}", PID_LABEL, pid).as_str()]).await
+    get_containers_by_label(docker, vec![format!("{}={}", PID_LABEL, pid)]).await
 }
 
 /// Return all containers started by dockyard
@@ -74,7 +89,21 @@ async fn get_containers_by_pid(docker: &Docker, pid: u32) -> Result<Vec<Containe
 /// * `docker` - Docker client
 ///
 async fn get_dockyard_containers(docker: &Docker) -> Result<Vec<ContainerSummaryInner>> {
-    get_containers_by_label(docker, vec![PID_LABEL]).await
+    get_containers_by_label(
+        docker,
+        vec![format!("{}={}", DOCKYARD_COMMAND_LABEL, "true")],
+    )
+    .await
+}
+
+pub(crate) async fn get_all_containers(docker: &Docker) -> Result<Vec<ContainerSummaryInner>> {
+    match docker
+        .list_containers(None::<ListContainersOptions<String>>)
+        .await
+    {
+        Ok(r) => Ok(r),
+        Err(e) => Err(anyhow!("Failed getting all containers: {}", e)),
+    }
 }
 
 /// Return all containers with labels
@@ -84,16 +113,17 @@ async fn get_dockyard_containers(docker: &Docker) -> Result<Vec<ContainerSummary
 /// * `docker` - Docker client
 /// * `labels` - Labels to filter by
 ///
-async fn get_containers_by_label(
+pub(crate) async fn get_containers_by_label(
     docker: &Docker,
-    labels: Vec<&str>,
+    labels: Vec<String>,
 ) -> Result<Vec<ContainerSummaryInner>> {
+    log::debug!("Getting containers for labels {}", labels.join(","));
     match docker
         .list_containers(Some(ListContainersOptions {
             all: true,
-            filters: vec![("label", labels)]
+            filters: vec![("label".to_string(), labels)]
                 .into_iter()
-                .collect::<HashMap<&str, Vec<&str>>>(),
+                .collect::<HashMap<String, Vec<String>>>(),
             ..Default::default()
         }))
         .await
@@ -106,7 +136,7 @@ async fn get_containers_by_label(
 #[cfg(test)]
 mod test {
     use super::*;
-    use crate::container::download_image;
+    use crate::container::check_image;
     use bollard::container::{Config, CreateContainerOptions};
     use log::LevelFilter;
     use simple_logger::SimpleLogger;
@@ -123,7 +153,7 @@ mod test {
         let pid: u32 = rand::random();
         // create container with label
         let id = rt.block_on(async {
-            download_image(&docker, "hello-world:linux").await.unwrap();
+            check_image(&docker, "hello-world:linux").await.unwrap();
             create_hello_container(&docker, pid).await.unwrap()
         });
 
@@ -148,7 +178,7 @@ mod test {
         let docker = Docker::connect_with_unix_defaults().unwrap();
 
         let ids = rt.block_on(async {
-            download_image(&docker, "hello-world:linux").await.unwrap();
+            check_image(&docker, "hello-world:linux").await.unwrap();
             let id1 = create_hello_container(&docker, rand::random())
                 .await
                 .unwrap();
@@ -183,9 +213,12 @@ mod test {
                 Config {
                     image: Some("hello-world:linux"),
                     labels: Some(
-                        vec![(PID_LABEL, pid.to_string().as_str())]
-                            .into_iter()
-                            .collect::<HashMap<&str, &str>>(),
+                        vec![
+                            (PID_LABEL, pid.to_string().as_str()),
+                            (DOCKYARD_COMMAND_LABEL, "true"),
+                        ]
+                        .into_iter()
+                        .collect::<HashMap<&str, &str>>(),
                     ),
                     ..Default::default()
                 },
