@@ -22,7 +22,7 @@ bollard = { git = "https://github.com/fussybeaver/bollard/"}
 futures = "0.3.4"
 futures-core = "0.3.4"
 futures-util = "0.3.4"
-tokio = { version = "0.2.2", features = ["time",  "signal", "macros"] }
+tokio = { version = "0.3.3", features = ["time",  "signal", "macros"] }
 log = "0.4"
 simple_logger = "1.11.0"
 clap = { version = "2", features = ["yaml"] }
