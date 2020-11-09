@@ -165,9 +165,9 @@ async fn run_watch(docker: &Docker, args: &ArgMatches<'_>) -> Result<i32> {
         get_backup_volume_mount(output.to_string())
     };
     let exclude_containers =
-        HashSet::from_iter(args.values_of_lossy("exclude_containers").unwrap_or(vec![]));
+        HashSet::from_iter(args.values_of_lossy("exclude_containers").unwrap_or_default());
     let exclude_volumes =
-        HashSet::from_iter(args.values_of_lossy("exclude_volumes").unwrap_or(vec![]));
+        HashSet::from_iter(args.values_of_lossy("exclude_volumes").unwrap_or_default());
     backup_on_interval(
         &docker,
         cron,
@@ -214,7 +214,7 @@ async fn run_backup(docker: &Docker, subcommand: &ArgMatches<'_>) -> Result<i32>
                     }),
                 "container" => {
                     let exclude_volumes: HashSet<String> = HashSet::from_iter(
-                        subargs.values_of_lossy("exclude_volumes").unwrap_or(vec![]),
+                        subargs.values_of_lossy("exclude_volumes").unwrap_or_default(),
                     );
                     backup_container(&docker, resource_name, backup_mount, &exclude_volumes)
                         .await

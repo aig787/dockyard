@@ -66,7 +66,7 @@ async fn backup_all_containers(
                     .names
                     .as_ref()
                     .unwrap()
-                    .into_iter()
+                    .iter()
                     .all(|n| !exclude_containers.contains(&n.replace("/", "")))
         })
         .collect::<Vec<_>>();
