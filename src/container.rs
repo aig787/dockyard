@@ -47,7 +47,7 @@ pub async fn check_image(
 ) -> Result<Option<Vec<CreateImageInfo>>, bollard::errors::Error> {
     match docker.inspect_image(image).await {
         Ok(_) => Ok(None),
-        Err(_) => download_image(docker, image).await.map(|r| Some(r)),
+        Err(_) => download_image(docker, image).await.map(Some),
     }
 }
 
