@@ -18,6 +18,35 @@ cargo install dockyard
 ```
 
 ### Usage
+
+#### docker-compose
+```yaml
+---
+version: "2.1"
+services:
+  dockyard:
+    image: aig787/dockyard
+    container_name: dockyard
+    environment:
+      - OUTPUT_TYPE=directory # or volume
+      - OUTPUT=/backups # or volume name
+      - ARGS="" # optional additional arguments
+    restart: unless-stopped
+```
+
+#### docker cli
+
+```shell
+docker run -d \
+--name=dockyard \
+-e OUTPUT_TYPE=directory # or volume \
+-e OUTPUT=/backups # or volume name \
+-e ARGS="" # optional additional arguments \
+--restart unless-stopped \
+aig787/dockyard
+```
+
+#### Shell
 ```shell
 # Back up volume to directory
 dockyard backup volume <volume> <backup-directory>
@@ -36,6 +65,9 @@ dockyard restore volume <relative_archive_path> <backup-directory> <volume>
 
 # Restore container
 dockyard restore container <relative-backup-file> <backup-directory> <container>
+
+# Monitor and back up all containers
+dockyard watch --exclude-volumes <volumes> --exclude-containers <containers>
 ```
 
 ### Example Back Up and Restore
@@ -59,8 +91,7 @@ dockyard restore container <relative-backup-file> <backup-directory> <container>
 ```
 ### Building the docs
 ```shell
-cargo doc
-cargo readme > README.md
+make docs
 ```
 
 ### Building the container
