@@ -3,4 +3,4 @@
 .DS_STORE
 .dockerignore
 .cargo/advisory-db
-.coverage/
+lcov.info
