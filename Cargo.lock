@@ -82,7 +82,7 @@ checksum = "cf1de2fe8c75bc145a2f577add951f8134889b4795d47466a54a5c846d691693"
 [[package]]
 name = "bollard"
 version = "0.8.0"
-source = "git+https://github.com/fussybeaver/bollard/#b0c98c9eaec321b06238c8ff63c58712b0c915ab"
+source = "git+https://github.com/fussybeaver/bollard/#0dcfd24ca402bb436bbe337c1b35e566797ec9bc"
 dependencies = [
  "base64 0.12.3",
  "bollard-stubs",
