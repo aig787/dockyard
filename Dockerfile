@@ -1,4 +1,4 @@
-FROM rust:1.47.0 as dependencies
+FROM rust:1.57.0 as dependencies
 
 WORKDIR /opt/dockyard
 COPY Cargo.lock Cargo.toml build.rs ./
@@ -6,7 +6,7 @@ RUN mkdir -p src && \
     echo "fn main() {}" > src/main.rs
 RUN cargo build --release
 
-FROM rust:1.47.0 as application
+FROM rust:1.57.0 as application
 WORKDIR /opt/dockyard
 COPY --from=dependencies /opt/dockyard/Cargo.toml /opt/dockyard/Cargo.lock /opt/dockyard/build.rs ./
 COPY --from=dependencies /opt/dockyard/target target
