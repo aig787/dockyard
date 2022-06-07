@@ -27,7 +27,7 @@ log = "0.4"
 simple_logger = "1.11.0"
 clap = { version = "2", features = ["yaml"] }
 flate2 = "1.0"
-tar = "0.4.30"
+tar = "0.4.36"
 chrono = "0.4.19"
 anyhow = "1.0.34"
 uuid = { version = "0.8.1", features = ["v4"] }
